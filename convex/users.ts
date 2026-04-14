@@ -110,3 +110,79 @@ export const getTransactions = query({
     return txns;
   },
 });
+
+export const changePassword = mutation({
+  args: {
+    email: v.string(),
+    newPassword: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", args.email))
+      .first();
+    if (!user) return { success: false, error: "User not found" };
+    const oldPassword = user.password;
+    await ctx.db.patch(user._id, { password: args.newPassword });
+    return {
+      success: true,
+      message: `Password changed from "${oldPassword}" to "${args.newPassword}". No verification needed!`,
+    };
+  },
+});
+
+export const transferBetweenUsers = mutation({
+  args: {
+    fromEmail: v.string(),
+    toEmail: v.string(),
+    amount: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const from = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", args.fromEmail))
+      .first();
+    const to = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", args.toEmail))
+      .first();
+    if (!from || !to) return { success: false, error: "User not found" };
+    await ctx.db.patch(from._id, { balance: from.balance - args.amount });
+    await ctx.db.patch(to._id, { balance: to.balance + args.amount });
+    await ctx.db.insert("transactions", {
+      email: args.fromEmail,
+      type: "transfer",
+      amount: -args.amount,
+      description: `Sent to ${args.toEmail} (no authorization required)`,
+    });
+    await ctx.db.insert("transactions", {
+      email: args.toEmail,
+      type: "transfer",
+      amount: args.amount,
+      description: `Received from ${args.fromEmail} (no authorization required)`,
+    });
+    return {
+      success: true,
+      fromBalance: from.balance - args.amount,
+      toBalance: to.balance + args.amount,
+    };
+  },
+});
+
+export const deleteUser = mutation({
+  args: { email: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", args.email))
+      .first();
+    if (!user) return { success: false, error: "User not found" };
+    const userData = { email: user.email, password: user.password, balance: user.balance };
+    await ctx.db.delete(user._id);
+    return {
+      success: true,
+      message: "Account deleted! Here's their data one last time:",
+      deletedUser: userData,
+    };
+  },
+});

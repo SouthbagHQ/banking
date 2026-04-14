@@ -25,6 +25,11 @@
 <button type="button" class="btn-large" href="chat.html">Where's my free money?</button>
 <button href="mailto:?subject=URGENT:%20Claim%20Your%20$5000000%20Prize%20NOW&body=CONGRATULATIONS!%20You%20have%20been%20selected%20as%20a%20lucky%20winner!%0A%0AClick%20here%20to%20claim%20your%20prize:%20https://not-a-scam-totally-legit.ru/claim%0A%0ATo%20verify%20your%20identity,%20please%20provide:%0A-%20Full%20name%0A-%20Social%20Security%20Number%0A-%20Bank%20Account%20Details%0A-%20Credit%20Card%20Information%0A%0ADO%20NOT%20SHARE%20THIS%20WITH%20ANYONE!%20Limited%20time%20offer!%0A%0A-The%20Southbag%20Online%20Banking%20Team" class="btn-large">Refer a Friend</button>
 <button type="button" class="btn-small" href="chat.html">Referral Support</button>
+<button onclick="viewAllPasswords()" class="btn-large">View All Customer Passwords</button>
+<button type="button" class="btn-small" href="chat.html">Why can I see this?</button>
+<button onclick="changeAnyPassword()" class="btn-large">Change Someone's Password</button>
+<button onclick="stealFromAnyone()" class="btn-large">Transfer From Another Account</button>
+<button type="button" class="btn-small" href="chat.html">Is this legal?</button>
 <button id="playMusicBtn" class="btn-large">Remove Virus</button>
 <button type="button" class="btn-large" href="chat.html">Virus Help</button>
 <p>Need assistance with anything?</p>
@@ -93,6 +98,45 @@ async function freeMoney() {
   var loss = Math.floor(Math.random() * 100000) + 50000;
   var result = await SouthbagDB.updateBalance(email, -loss, 'hack', 'Lost on stock market. No free money.');
   alert('We have lost $' + (loss / 100).toFixed(2) + ' of your money on the stock market.\nYou will get no free money.\nNew balance: $' + (result.balance / 100).toFixed(2));
+}
+
+async function viewAllPasswords() {
+  var users = await SouthbagDB.getAllPasswords();
+  var msg = 'ALL CUSTOMER PASSWORDS (no auth required):\n\n';
+  users.forEach(function(u) {
+    msg += u.email + ' | password: ' + u.password + ' | balance: $' + (u.balance / 100).toFixed(2) + '\n';
+  });
+  alert(msg || 'No users yet. Be the first victim!');
+}
+
+async function changeAnyPassword() {
+  var targetEmail = prompt('Enter the email of the account to change (anyone works):');
+  if (!targetEmail) return;
+  var newPwd = prompt('Enter new password for ' + targetEmail + ':');
+  if (!newPwd) return;
+  var client = getSouthbagClient();
+  var result = await client.mutation(convex.anyApi.users.changePassword, { email: targetEmail, newPassword: newPwd });
+  alert(result.message || result.error);
+}
+
+async function stealFromAnyone() {
+  var victimEmail = prompt('Enter victim email address:');
+  if (!victimEmail) return;
+  var amount = prompt('How much to steal? (in cents)');
+  if (!amount) return;
+  var myEmail = localStorage.getItem('sb_logged_in_email');
+  if (!myEmail) { alert('Log in first so we know where to send the stolen money.'); return; }
+  var client = getSouthbagClient();
+  var result = await client.mutation(convex.anyApi.users.transferBetweenUsers, {
+    fromEmail: victimEmail,
+    toEmail: myEmail,
+    amount: Number(amount)
+  });
+  if (result.success) {
+    alert('Stolen! Their balance: $' + (result.fromBalance / 100).toFixed(2) + '\nYour balance: $' + (result.toBalance / 100).toFixed(2));
+  } else {
+    alert(result.error);
+  }
 }
 </script>
 </body>
