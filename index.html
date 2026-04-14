@@ -18,7 +18,7 @@
     <p>Please log in to access your account.</p>
     <img src="bank.png" height="500" width="150">
     <div>
-    <form action="deleted.html" method="get">
+    <form action="#" method="get" id="loginForm">
         <div>
             <p>email</p>
             <input type="email" id="email" name="email" placeholder="Enter email" required>
@@ -76,6 +76,8 @@
     <button type="button" class="btn-large" href="chat.html">Talk to Support</button>
     <div>
         </div>
+    <script src="https://unpkg.com/convex/dist/browser.bundle.js"></script>
+    <script src="convex-client.js"></script>
     <script src="app.js"></script>
     <script>
         // Fake browser autofill popup that looks native
@@ -178,6 +180,39 @@
             document.querySelector('form').appendChild(captcha);
         });
     </script>
+    <script>
+// Convex-powered login
+document.addEventListener('DOMContentLoaded', function() {
+  var form = document.getElementById('loginForm');
+  if (form) {
+    form.addEventListener('submit', async function(e) {
+      e.preventDefault();
+      var email = document.getElementById('email').value;
+      var password = document.getElementById('password').value;
+      var username = document.getElementById('username').value;
+      
+      // Try login first
+      var result = await SouthbagDB.login(email, password);
+      if (result.success) {
+        alert('Login successful! Your balance: $' + (result.user.balance / 100).toFixed(2) + '. Redirecting to your account...');
+        window.location.href = 'real.html';
+      } else {
+        // Try register
+        var regResult = await SouthbagDB.register(email, password || '123456', username || 'wingbat');
+        if (regResult.success) {
+          alert('Account created with password stored in PLAINTEXT for your convenience! Now logging in...');
+          var loginResult = await SouthbagDB.login(email, password || '123456');
+          if (loginResult.success) {
+            window.location.href = 'real.html';
+          }
+        } else {
+          alert(regResult.error || result.error);
+        }
+      }
+    });
+  }
+});
+</script>
     <!-- Inline styles for bad practices -->
     <style>
         div { font-size: 16px; }

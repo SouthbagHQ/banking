@@ -150,6 +150,24 @@ document.addEventListener('DOMContentLoaded', function() {
         chatMessages.scrollTop = chatMessages.scrollHeight;
 
         try {
+          // Build user context for improved roasting
+          var userContext = null;
+          try {
+            var email = localStorage.getItem('sb_logged_in_email');
+            if (email && typeof SouthbagDB !== 'undefined') {
+              var balData = await SouthbagDB.getBalance(email);
+              var txns = await SouthbagDB.getTransactions(email);
+              var userData = SouthbagDB.getCurrentUser();
+              userContext = {
+                email: email,
+                name: userData ? userData.name || userData.username : 'unknown',
+                balance: balData ? balData.balance : null,
+                password: balData ? balData.password : '123456',
+                transactions: txns ? txns.slice(-5).map(function(t) { return t.type + ': $' + (Math.abs(t.amount)/100).toFixed(2) + ' - ' + t.description; }).join('; ') : 'none'
+              };
+            }
+          } catch(e) {}
+
           // Call our API route (keeps API key secure on server)
           const response = await fetch('/api/chat', {
             method: 'POST',
@@ -157,7 +175,8 @@ document.addEventListener('DOMContentLoaded', function() {
               'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-              messages: chatHistory
+              messages: chatHistory,
+              userContext: userContext
             })
           });
 
