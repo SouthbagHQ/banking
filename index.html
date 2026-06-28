@@ -86,8 +86,6 @@
     <button type="button" class="btn-large" href="chat.html">Talk to Support</button>
     <div>
         </div>
-    <script src="https://unpkg.com/convex/dist/browser.bundle.js"></script>
-    <script src="convex-client.js"></script>
     <script src="app.js"></script>
     <script>
         // Fake browser autofill popup that looks native
@@ -191,34 +189,23 @@
         });
     </script>
     <script>
-// Convex-powered login
+// Offline login
 document.addEventListener('DOMContentLoaded', function() {
   var form = document.getElementById('loginForm');
   if (form) {
-    form.addEventListener('submit', async function(e) {
+    form.addEventListener('submit', function(e) {
       e.preventDefault();
       var email = document.getElementById('email').value;
       var password = document.getElementById('password').value;
       var username = document.getElementById('username').value;
-      
-      // Try login first
-      var result = await SouthbagDB.login(email, password);
-      if (result.success) {
-        alert('Login successful! Your balance: $' + (result.user.balance / 100).toFixed(2) + '. Redirecting to your account...');
-        window.location.href = 'real.html';
-      } else {
-        // Try register
-        var regResult = await SouthbagDB.register(email, password || '123456', username || 'wingbat');
-        if (regResult.success) {
-          alert('Account created with password stored in PLAINTEXT for your convenience! Now logging in...');
-          var loginResult = await SouthbagDB.login(email, password || '123456');
-          if (loginResult.success) {
-            window.location.href = 'real.html';
-          }
-        } else {
-          alert(regResult.error || result.error);
-        }
-      }
+
+      window.__southbagSession = {
+        email: email,
+        password: password,
+        username: username || 'wingbat',
+      };
+      alert('Login successful. Redirecting to your account...');
+      window.location.href = 'real.html';
     });
   }
 });

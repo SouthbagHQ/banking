@@ -60,11 +60,17 @@
 
         function saveChatHistory() {
             localStorage.setItem('southbagChatHistory', JSON.stringify(chatHistory));
+            if (typeof SouthbagDB !== 'undefined') {
+                SouthbagDB.saveChatHistory(chatHistory).catch(() => {});
+            }
         }
 
         function clearChatHistory() {
             localStorage.removeItem('southbagChatHistory');
             chatHistory = [systemPrompt];
+            if (typeof SouthbagDB !== 'undefined') {
+                SouthbagDB.saveChatHistory(chatHistory).catch(() => {});
+            }
         }
 
         // Chat message history for context
@@ -76,6 +82,13 @@
 
         // Restore previous messages to UI on load
         function restoreChatUI() {
+            chatMessages.innerHTML = `
+                <div class="welcome-message">
+                    <h3>Welcome to Southbag Support</h3>
+                    <p>Oh great, another one. Type your message below I guess.</p>
+                </div>
+            `;
+
             // Check if there are any user/assistant messages to restore
             const hasMessages = chatHistory.some(m => m.role === 'user' || m.role === 'assistant');
             if (hasMessages) {
@@ -102,6 +115,18 @@
         }
         const chatInput = document.getElementById('chatInput');
         const sendBtn = document.getElementById('sendBtn');
+
+        async function restoreChatFromDb() {
+            if (typeof SouthbagDB === 'undefined') return;
+            try {
+                const saved = await SouthbagDB.getChatHistory();
+                if (Array.isArray(saved) && saved.length > 1) {
+                    chatHistory = saved;
+                    localStorage.setItem('southbagChatHistory', JSON.stringify(chatHistory));
+                    restoreChatUI();
+                }
+            } catch (e) {}
+        }
 
         // Device info for roasting purposes
         let deviceInfo = {
@@ -699,46 +724,8 @@
 
         // Restore chat on load and focus input
         restoreChatUI();
+        restoreChatFromDb();
         chatInput.focus();
-    </script>
-
-    <script>
-    // Load persisted chat history from Convex on page load
-    document.addEventListener('DOMContentLoaded', async function() {
-      try {
-        var saved = await SouthbagDB.getChatHistory();
-        if (saved && saved.length > 1) {
-          // Restore into the global chatHistory (from app.js)
-          // chatHistory[0] is the system prompt, keep it, append user/assistant msgs
-          var chatMessages = document.getElementById('chatMessages');
-          if (chatMessages) {
-            for (var i = 1; i < saved.length; i++) {
-              chatHistory.push(saved[i]);
-              var div = document.createElement('div');
-              div.className = 'chat-message ' + (saved[i].role === 'user' ? 'user' : 'bot');
-              div.textContent = saved[i].content;
-              chatMessages.appendChild(div);
-            }
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-          }
-        }
-      } catch(e) {
-        console.log('Failed to load chat history. Very secure.');
-      }
-    });
-
-    // Monkey-patch to save after each message exchange
-    var _origFetch = window.fetch;
-    window.fetch = async function() {
-      var result = await _origFetch.apply(this, arguments);
-      // After chat API call, save history to Convex
-      if (arguments[0] && arguments[0].toString().includes('/api/chat')) {
-        setTimeout(function() {
-          try { SouthbagDB.saveChatHistory(chatHistory); } catch(e) {}
-        }, 2000);
-      }
-      return result;
-    };
     </script>
 </body>
 </html>

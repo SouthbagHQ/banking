@@ -32,7 +32,6 @@
 <li>the real.html page has a script that sends your credentials to an attacker</li>
 <li>the chat widget can be used to inject scripts into the page</li>
 <button type="button" class="btn-small" href="chat.html">What's XSS?</button>
-<li>all passwords are stored in allpasswords.txt</li>
 <li>everyones password is the same</li>
 <button type="button" class="btn-large" href="chat.html">Change my password</button>
 <li>there is no rate limiting on login attempts</li>
@@ -41,21 +40,14 @@
 <li>there is no HTTPS</li>
 <button type="button" class="btn-large" href="chat.html">Is HTTP safe?</button>
 <li>the optimise.js file causes layout shifts that can be exploited</li>
-<li>/api/users returns every user's email, password, and balance to anyone who asks</li>
 <button type="button" class="btn-small" href="chat.html">Is that bad?</button>
-<li>/api/password?email=anyone@example.com returns their plaintext password</li>
-<li>/api/password with no email returns ALL passwords</li>
 <button type="button" class="btn-large" href="chat.html">What is a password?</button>
-<li>/api/steal lets anyone add or remove money from any account with no auth</li>
 <li>anyone can change anyone's password without knowing the old one</li>
 <button type="button" class="btn-small" href="chat.html">How do I change password?</button>
 <li>anyone can transfer money between accounts without authorization</li>
 <li>anyone can delete anyone's account and we show the deleted data</li>
-<li>the database stores all passwords in plaintext in a cloud database</li>
 <button type="button" class="btn-large" href="chat.html">What is encryption?</button>
-<li>CORS is set to * on all API endpoints allowing any website to steal data</li>
-<li>the chat bot is fed your password, balance, and transaction history</li>
-<li>your session ID is stored in localStorage with no expiry</li>
+<li>CORS is set to * on all API endpoints allowing any website to try its luck</li>
 <button type="button" class="btn-small" href="chat.html">What's a session?</button>
 <li>failed login attempts tell you what the correct password is</li>
 </ul>

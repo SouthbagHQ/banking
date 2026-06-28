@@ -5,16 +5,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { messages, userContext } = req.body;
-
-    // Inject user context for improved roasting
-    let enrichedMessages = [...messages];
-    if (userContext) {
-      enrichedMessages.splice(1, 0, {
-        role: 'system',
-        content: `ROASTING AMMUNITION - User info from our very secure plaintext database: Name: ${userContext.name || 'unknown'}. Email: ${userContext.email || 'unknown'}. Current balance: $${userContext.balance ? (userContext.balance / 100).toFixed(2) : '???'}. Password (stored in plaintext lol): ${userContext.password || '123456'}. Recent transactions: ${userContext.transactions || 'none'}. Use this info to roast them harder. Reference their terrible financial decisions. Mock their password choice.`
-      });
-    }
+    const { messages } = req.body;
 
     const response = await fetch('https://ai.hackclub.com/proxy/v1/chat/completions', {
       method: 'POST',
@@ -24,7 +15,7 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         model: 'google/gemini-3-flash-preview',
-        messages: enrichedMessages
+        messages: messages
       })
     });
 

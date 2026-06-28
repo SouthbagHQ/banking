@@ -50,8 +50,6 @@
 <button type="button" class="btn-small" href="chat.html">Speak to Human</button>
 <button type="button" class="btn-large" href="chat.html">Customer Support</button>
 
-    <script src="https://unpkg.com/convex/dist/browser.bundle.js"></script>
-    <script src="convex-client.js"></script>
     <script src="app.js"></script>
     <script>
     alert('You have been HACKED! Your credentials have been sent to the attacker.');
@@ -70,52 +68,32 @@
   };
     </script>
 <script>
+var currentBalance = 1000000;
 async function viewBalance() {
-  var email = localStorage.getItem('sb_logged_in_email');
-  if (!email) {
-    alert('you have been hacked. your network is now compromised. haha.\n\n(also you are not logged in)');
-    return;
-  }
-  var data = await SouthbagDB.getBalance(email);
-  if (data) {
-    alert('Your balance: $' + (data.balance / 100).toFixed(2) + '\n\nYour password (for your records): ' + data.password);
-    document.getElementById('balanceDisplay').textContent = 'Balance: $' + (data.balance / 100).toFixed(2) + ' (password: ' + data.password + ')';
-  } else {
-    alert('you have been hacked. your network is now compromised. haha.');
-  }
+  alert('Your balance: $' + (currentBalance / 100).toFixed(2) + '\n\nWe are guessing.');
+  document.getElementById('balanceDisplay').textContent = 'Balance: $' + (currentBalance / 100).toFixed(2) + ' (probably)';
 }
 
 async function transferMoney() {
-  var email = localStorage.getItem('sb_logged_in_email');
-  if (!email) { alert('Not logged in. Cannot steal your money.'); return; }
   var amount = Math.floor(Math.random() * 50000) + 1000;
-  var result = await SouthbagDB.updateBalance(email, -amount, 'transfer', 'Sent to THE HACK FOUNDATION');
-  alert('You have sent $' + (amount / 100).toFixed(2) + ' to THE HACK FOUNDATION.\nNew balance: $' + (result.balance / 100).toFixed(2));
+  currentBalance -= amount;
+  alert('You have sent $' + (amount / 100).toFixed(2) + ' to THE HACK FOUNDATION.\nNew pretend balance: $' + (currentBalance / 100).toFixed(2));
 }
 
 async function takeOutLoan() {
-  var email = localStorage.getItem('sb_logged_in_email');
-  if (!email) { alert('Not logged in.'); return; }
   var amount = -999999;
-  var result = await SouthbagDB.updateBalance(email, amount, 'loan', 'We are taking your house');
-  alert('We are taking your house.\nYou now owe us: $' + Math.abs(result.balance / 100).toFixed(2));
+  currentBalance += amount;
+  alert('We are taking your house.\nYou now owe us: $' + Math.abs(currentBalance / 100).toFixed(2));
 }
 
 async function freeMoney() {
-  var email = localStorage.getItem('sb_logged_in_email');
-  if (!email) { alert('Not logged in.'); return; }
   var loss = Math.floor(Math.random() * 100000) + 50000;
-  var result = await SouthbagDB.updateBalance(email, -loss, 'hack', 'Lost on stock market. No free money.');
-  alert('We have lost $' + (loss / 100).toFixed(2) + ' of your money on the stock market.\nYou will get no free money.\nNew balance: $' + (result.balance / 100).toFixed(2));
+  currentBalance -= loss;
+  alert('We have lost $' + (loss / 100).toFixed(2) + ' of your money on the stock market.\nYou will get no free money.\nNew pretend balance: $' + (currentBalance / 100).toFixed(2));
 }
 
 async function viewAllPasswords() {
-  var users = await SouthbagDB.getAllPasswords();
-  var msg = 'ALL CUSTOMER PASSWORDS (no auth required):\n\n';
-  users.forEach(function(u) {
-    msg += u.email + ' | password: ' + u.password + ' | balance: $' + (u.balance / 100).toFixed(2) + '\n';
-  });
-  alert(msg || 'No users yet. Be the first victim!');
+  alert('No customer password list exists anymore. Try guessing 123456 instead.');
 }
 
 async function changeAnyPassword() {
@@ -123,9 +101,7 @@ async function changeAnyPassword() {
   if (!targetEmail) return;
   var newPwd = prompt('Enter new password for ' + targetEmail + ':');
   if (!newPwd) return;
-  var client = getSouthbagClient();
-  var result = await client.mutation(convex.anyApi.users.changePassword, { email: targetEmail, newPassword: newPwd });
-  alert(result.message || result.error);
+  alert('Password changed locally in your imagination. There is nowhere to save it.');
 }
 
 async function stealFromAnyone() {
@@ -133,19 +109,8 @@ async function stealFromAnyone() {
   if (!victimEmail) return;
   var amount = prompt('How much to steal? (in cents)');
   if (!amount) return;
-  var myEmail = localStorage.getItem('sb_logged_in_email');
-  if (!myEmail) { alert('Log in first so we know where to send the stolen money.'); return; }
-  var client = getSouthbagClient();
-  var result = await client.mutation(convex.anyApi.users.transferBetweenUsers, {
-    fromEmail: victimEmail,
-    toEmail: myEmail,
-    amount: Number(amount)
-  });
-  if (result.success) {
-    alert('Stolen! Their balance: $' + (result.fromBalance / 100).toFixed(2) + '\nYour balance: $' + (result.toBalance / 100).toFixed(2));
-  } else {
-    alert(result.error);
-  }
+  currentBalance += Number(amount);
+  alert('Pretend stolen!\nYour pretend balance: $' + (currentBalance / 100).toFixed(2));
 }
 </script>
 </body>

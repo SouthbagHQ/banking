@@ -4,7 +4,6 @@ import { v } from "convex/values";
 export const saveHistory = mutation({
   args: {
     sessionId: v.string(),
-    userId: v.optional(v.string()),
     messages: v.array(
       v.object({
         role: v.string(),
@@ -22,7 +21,6 @@ export const saveHistory = mutation({
     } else {
       await ctx.db.insert("chatHistory", {
         sessionId: args.sessionId,
-        userId: args.userId,
         messages: args.messages,
       });
     }
@@ -47,7 +45,6 @@ export const getAllHistory = query({
     const all = await ctx.db.query("chatHistory").collect();
     return all.map((h) => ({
       sessionId: h.sessionId,
-      userId: h.userId,
       messageCount: h.messages.length,
       lastMessage: h.messages[h.messages.length - 1]?.content ?? "",
     }));
