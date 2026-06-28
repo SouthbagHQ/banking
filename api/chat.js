@@ -7,6 +7,14 @@ export default async function handler(req, res) {
   try {
     const { messages } = req.body;
 
+    if (!process.env.HCAI) {
+      return res.status(500).json({ error: 'Missing HCAI environment variable' });
+    }
+
+    if (!Array.isArray(messages)) {
+      return res.status(400).json({ error: 'Missing messages array' });
+    }
+
     const response = await fetch('https://ai.hackclub.com/proxy/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -22,10 +30,15 @@ export default async function handler(req, res) {
     if (!response.ok) {
       const errorText = await response.text();
       console.error('API error:', response.status, errorText);
-      return res.status(response.status).json({ error: errorText });
+      return res.status(response.status).json({ error: errorText || 'AI provider request failed' });
     }
 
     const data = await response.json();
+    if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+      console.error('Unexpected API response:', data);
+      return res.status(502).json({ error: 'Unexpected AI provider response' });
+    }
+
     res.status(200).json(data);
   } catch (error) {
     console.error('Chat API error:', error);

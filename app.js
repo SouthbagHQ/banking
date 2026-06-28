@@ -162,6 +162,12 @@ document.addEventListener('DOMContentLoaded', function() {
           });
 
           const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.error || `Chat API returned ${response.status}`);
+          }
+          if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+            throw new Error('Chat API returned an unexpected response');
+          }
           const botReply = data.choices[0].message.content;
 
           // Add bot response to history
@@ -172,7 +178,7 @@ document.addEventListener('DOMContentLoaded', function() {
           typingMsg.textContent = botReply;
         } catch (error) {
           console.error('Chat error:', error);
-          typingMsg.textContent = 'Sorry, I\'m having trouble connecting. Please try again.';
+          typingMsg.textContent = 'Chat is broken: ' + error.message;
         }
 
         chatMessages.scrollTop = chatMessages.scrollHeight;

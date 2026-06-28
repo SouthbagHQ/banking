@@ -662,6 +662,12 @@
                 });
 
                 const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || `Chat API returned ${response.status}`);
+                }
+                if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+                    throw new Error('Chat API returned an unexpected response');
+                }
                 let botReply = data.choices[0].message.content;
 
                 // Check for force redirect
@@ -698,7 +704,7 @@
             } catch (error) {
                 console.error('Chat error:', error);
                 typingMsg.classList.remove('typing');
-                typingMsg.textContent = 'Sorry, I\'m having trouble connecting. Please try again or call our support line.';
+                typingMsg.textContent = 'Chat is broken: ' + error.message;
             }
 
             chatMessages.scrollTop = chatMessages.scrollHeight;
