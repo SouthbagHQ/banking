@@ -364,7 +364,7 @@
             return new Promise(resolve => {
                 const overlay = document.createElement('div');
                 overlay.id = 'holdOverlay';
-                overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:#f0f0f0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;color:#333;font-family:Comic Sans MS,cursive;border:3px solid #999;';
+                overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:#f0f0f0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;color:#333;border:3px solid #999;';
                 overlay.innerHTML = `
                     <div style="text-align:center;background:white;padding:40px;border:2px solid #ccc;">
                         <marquee style="font-size:14px;color:#666;">~~~ Please Hold ~~~</marquee>
@@ -400,7 +400,7 @@
         // Execute disconnect command
         function executeDisconnect() {
             const overlay = document.createElement('div');
-            overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:#f5f5f5;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;color:#333;font-family:Comic Sans MS,cursive;';
+            overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:#f5f5f5;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;color:#333;';
             overlay.innerHTML = `
                 <div style="text-align:center;background:white;padding:40px 60px;border:2px solid #ccc;">
                     <div style="font-size:48px;margin-bottom:10px;color:red;font-weight:bold;">X</div>
@@ -408,7 +408,7 @@
                     <hr style="margin:15px 0;border:1px solid #ddd;">
                     <p style="color:#666;margin-top:10px;font-size:13px;">The agent has disconnected.</p>
                     <p style="color:#999;font-size:11px;margin-top:15px;">Error Code: CUSTOMER_TOO_ANNOYING</p>
-                    <button onclick="location.reload()" style="margin-top:25px;padding:8px 20px;background:#ddd;color:#333;border:2px outset #ccc;cursor:pointer;font-family:Comic Sans MS,cursive;">Try Again</button>
+                    <button onclick="location.reload()" style="margin-top:25px;padding:8px 20px;background:#ddd;color:#333;border:2px outset #ccc;cursor:pointer;">Try Again</button>
                 </div>
             `;
             document.body.appendChild(overlay);
@@ -418,11 +418,11 @@
         // Execute popup command
         function executePopup(message) {
             const popup = document.createElement('div');
-            popup.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#ffffcc;padding:20px 30px;border:3px outset #ccc;z-index:9999;text-align:center;min-width:280px;font-family:Comic Sans MS,cursive;';
+            popup.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#ffffcc;padding:20px 30px;border:3px outset #ccc;z-index:9999;text-align:center;min-width:280px;';
             popup.innerHTML = `
                 <div style="background:#000080;color:white;padding:5px 10px;margin:-20px -30px 15px -30px;font-weight:bold;font-size:12px;text-align:left;">Southbag Alert</div>
                 <p style="color:#333;margin-bottom:20px;font-size:14px;">${message}</p>
-                <button onclick="this.parentElement.remove()" style="padding:5px 25px;background:#ddd;color:#333;border:2px outset #ccc;cursor:pointer;font-size:12px;font-family:Comic Sans MS,cursive;">OK</button>
+                <button onclick="this.parentElement.remove()" style="padding:5px 25px;background:#ddd;color:#333;border:2px outset #ccc;cursor:pointer;font-size:12px;">OK</button>
             `;
             document.body.appendChild(popup);
         }
@@ -457,7 +457,6 @@
                 confetti.style.cssText = `
                     position: fixed;
                     font-size: ${Math.random() * 14 + 10}px;
-                    font-family: Comic Sans MS, cursive;
                     color: ${colors[Math.floor(Math.random() * colors.length)]};
                     left: ${Math.random() * 100}vw;
                     top: -20px;
@@ -476,12 +475,12 @@
         // Execute ticket command
         function executeTicket(number) {
             const ticket = document.createElement('div');
-            ticket.style.cssText = 'position:fixed;top:20px;right:20px;background:white;padding:15px 20px;border:2px solid #999;z-index:9998;max-width:250px;font-family:Comic Sans MS,cursive;';
+            ticket.style.cssText = 'position:fixed;top:20px;right:20px;background:white;padding:15px 20px;border:2px solid #999;z-index:9998;max-width:250px;';
             ticket.innerHTML = `
                 <div style="font-size:11px;color:#666;border-bottom:1px dashed #ccc;padding-bottom:8px;margin-bottom:8px;">SUPPORT TICKET</div>
                 <div style="font-size:20px;font-weight:bold;color:#333;margin:8px 0;">#${number}</div>
                 <div style="font-size:10px;color:#888;">Est. response: Never</div>
-                <button onclick="this.parentElement.remove()" style="margin-top:12px;padding:4px 10px;background:#eee;color:#333;border:1px solid #999;cursor:pointer;font-size:10px;font-family:Comic Sans MS,cursive;">[ close ]</button>
+                <button onclick="this.parentElement.remove()" style="margin-top:12px;padding:4px 10px;background:#eee;color:#333;border:1px solid #999;cursor:pointer;font-size:10px;">[ close ]</button>
             `;
             document.body.appendChild(ticket);
             setTimeout(() => ticket.remove(), 10000);
@@ -543,7 +542,6 @@
                     position: fixed;
                     top: 50%; left: 0; right: 0;
                     text-align: center;
-                    font-family: Comic Sans MS, cursive;
                     font-size: 24px;
                     color: red;
                     pointer-events: none;

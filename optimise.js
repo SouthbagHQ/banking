@@ -247,19 +247,6 @@ setInterval(() => {
     }
 }, 500);
 
-// Tons of render-blocking font loads
-const fonts = [
-    'Lobster+2', 'Pacifico', 'VT323', 'Fredoka+One', 'Fredoka:wght@300;400;500;600;700',
-    'Bangers', 'Permanent+Marker', 'Righteous', 'Russo+One', 'Alfa+Slab+One',
-    'Anton', 'Bebas+Neue', 'Monoton', 'Press+Start+2P', 'Cinzel:wght@400;700;900'
-];
-fonts.forEach(font => {
-    const fontLink = document.createElement('link');
-    fontLink.href = `https://fonts.googleapis.com/css2?family=${font}&display=block`;
-    fontLink.rel = 'stylesheet';
-    document.head.appendChild(fontLink);
-});
-
 // Load huge CSS libraries
 const cssLibs = [
     'https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.css',
