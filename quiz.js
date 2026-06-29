@@ -174,24 +174,36 @@
 
     resultsEl.innerHTML = summary + items;
     
-    // If passing, mark training as complete and redirect
+    // If passing, show the next required training step
     if (isPassing) {
-      try {
-        localStorage.setItem('sb_training_complete', 'true');
-      } catch (e) {}
-      
-      // Determine next page based on current quiz
       var path = window.location.pathname || '';
-      var nextPage = '/index.html'; // default
+      var nextPage = '../index.html';
+      var nextLabel = 'Continue to Login Portal';
       
       if (path.includes('quiz1.html')) {
-        nextPage = 'module1.html'; // Go to Module 2 (which loads quiz2)
+        try {
+          localStorage.setItem('sb_module1_complete', 'true');
+        } catch (e) {}
+        nextPage = 'module2.html';
+        nextLabel = 'Continue to Module 2';
       } else if (path.includes('quiz2.html')) {
-        nextPage = 'modules-complete.html'; // Go to completion page
+        try {
+          localStorage.setItem('sb_module2_complete', 'true');
+          localStorage.setItem('sb_training_complete', 'true');
+        } catch (e) {}
+        nextPage = 'modules-complete.html';
+        nextLabel = 'Complete Training';
       }
       
-      // Update results
-      resultsEl.innerHTML = summary + items;
+      resultsEl.innerHTML = summary + items +
+        `<p><button type="button" id="quiz-next-step" class="btn-small">${escapeHtml(nextLabel)}</button></p>`;
+
+      const nextButton = document.getElementById('quiz-next-step');
+      if (nextButton) {
+        nextButton.addEventListener('click', () => {
+          window.location.href = nextPage;
+        });
+      }
     }
   }
 
