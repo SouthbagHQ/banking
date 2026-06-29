@@ -38,7 +38,7 @@
             <p>password</p>
             <input type="text" id="password" name="password" placeholder="Enter username" required>
         </div>
-        <button type="button" class="btn-large" href="chat.html">Forgot Password? Chat Now</button>
+        <button type="button" class="btn-large" id="forgotPasswordBtn">Forgot Password? Verify by Code</button>
         <div>
             <p>username</p>
             <input type="text" id="username" name="username" placeholder="Enter password" required>
@@ -81,6 +81,23 @@
             <button type="button" class="btn-large" href="chat.html">Chat with a Human</button>
         </div>
     </form>
+    <section id="passwordRecovery" class="recovery-panel" hidden>
+        <h2>Recover your Southbag password</h2>
+        <p id="recoveryStatus">Step 1: confirm your email and we will send a six digit code.</p>
+        <form id="recoveryEmailForm">
+            <input type="email" id="recoveryEmail" placeholder="Email on your account" required>
+            <button type="submit" class="btn-small">Send code</button>
+        </form>
+        <form id="recoveryCodeForm" hidden>
+            <input type="text" id="recoveryCode" inputmode="numeric" maxlength="6" placeholder="6 digit code" required>
+            <button type="submit" class="btn-small">Verify code</button>
+        </form>
+        <form id="recoveryResetForm" hidden>
+            <input type="password" id="recoveryNewPassword" placeholder="Choose a new password" required>
+            <ul id="recoveryPasswordChecklist" class="password-checklist"></ul>
+            <button type="submit" class="btn-small">Save new password</button>
+        </form>
+    </section>
     </div>
     <button type="button" class="btn-small" href="chat.html">Need Help?</button>
     <button type="button" class="btn-large" href="chat.html">Talk to Support</button>
