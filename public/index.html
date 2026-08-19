@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Southbag Online Banking</title>
+  <meta name="description" content="Log in to Southbag Online Banking with Southbag Identity.">
+  <link rel="icon" href="logo.png" type="image/png">
+  <link rel="stylesheet" href="styles.css">
+  <script src="optimise.js"></script>
+</head>
+<body>
+  <header>
+    <img src="logo.png" alt="Southbag Online Banking Logo">
+    <h2>Southbag Online Banking</h2>
+  </header>
+  <main>
+    <h1>Welcome to Southbag Online Banking</h1>
+    <form id="loginForm">
+      <p>email</p>
+      <input type="email" placeholder="Enter email" required autocomplete="off">
+      <button type="button" class="btn-small" href="https://support.southbag.cc/ai">Confused?</button>
+      <p>password (not your real password)</p>
+      <input type="text" placeholder="Enter username" required autocomplete="off">
+      <p>username</p>
+      <input type="text" placeholder="Enter password that is not a password" required autocomplete="off">
+      <button type="button" class="btn-small" href="https://support.southbag.cc/ai">What's a username?</button>
+      <p>full name, formatted as an email for technical reasons</p>
+      <input type="email" placeholder="Enter Name" required autocomplete="off">
+      <p>amount</p>
+      <input type="email" placeholder="Enter Amount" required autocomplete="off">
+      <button type="button" class="btn-large" href="https://support.southbag.cc/ai">How much should I enter?</button>
+      <p>number</p>
+      <input type="email" placeholder="Enter Number" required autocomplete="off">
+      <p>name again</p>
+      <input type="email" placeholder="Enter Name" required autocomplete="off">
+      <p>code</p>
+      <input type="email" placeholder="Enter Code" required autocomplete="off">
+      <button type="button" class="btn-large" onclick="alert('i don\'t either')">I don't have a code</button>
+      <p>6 Digit code</p>
+      <input type="email" placeholder="6 Digit code" required autocomplete="off">
+      <p>Balance?</p>
+      <input type="text" placeholder="Yes" required autocomplete="off">
+      <button type="submit" class="btn-small">Eventually log in with Southbag Identity</button>
+      <button type="button" class="btn-large" href="account.html">delete account</button>
+    </form>
+    <p id="loginStatus"></p>
+    <button type="button" class="btn-large" href="locateasouthbankbranch.html">Give up and find a branch</button>
+  </main>
+  <script src="app.js"></script>
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', event => {
+      event.preventDefault();
+      location.href = '/auth/login';
+    });
+    fetch('/api/session').then(r => r.json()).then(session => {
+      if (!session.authenticated) return;
+      document.getElementById('loginStatus').innerHTML =
+        'Already logged in as ' + (session.user.name || session.user.email || 'somebody') +
+        '. <a href="/real.html">Open your account</a> or <a href="/auth/logout">log out</a>.';
+    });
+  </script>
+  <footer>
+    <p><button id="darkModeToggle" class="btn-large">Dark Mode</button></p>
+    <p><button href="securitybounty.html" class="btn-small">Security Bounty</button></p>
+    <p><button href="https://support.southbag.cc/ai" class="btn-large">Chat with a Human</button></p>
+  </footer>
+</body>
+</html>

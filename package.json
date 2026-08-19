@@ -2,9 +2,12 @@
   "name": "southbag-online-banking",
   "version": "1.0.0",
   "description": "A ***deliberately terrible*** 'online banking' website made for Borked, a bad site jam as a satirical version of my banks online banking system. I dont like it that much.",
-  "main": "app.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "wrangler deploy --dry-run",
+    "dev": "wrangler dev",
+    "deploy": "wrangler d1 migrations apply DB --remote && wrangler deploy",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote"
   },
   "repository": {
     "type": "git",
@@ -13,12 +16,12 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "bugs": {
     "url": "https://gitlab.com/castawhat/southbag-online-banking/issues"
   },
   "homepage": "https://gitlab.com/castawhat/southbag-online-banking#readme",
-  "dependencies": {
-    "convex": "^1.35.1"
+  "devDependencies": {
+    "wrangler": "^4.124.0"
   }
 }

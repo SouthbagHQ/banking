@@ -6,14 +6,21 @@ A ***deliberately terrible*** 'online banking' website made for Borked, a bad si
 
 This site intentionally has security vulnerabilities, performance nightmares, and UX disasters. Do NOT use any of these practices in production!
 
-## Quick Start
-1. No setup required!!
-2. Default password: `123456`
-3. Dark mode has "features"
-4. Prepare for popups
+## Development
+
+This now runs as a Cloudflare Worker with static assets, D1 storage, and OIDC login through `identity.southbag.cc`.
+
+```sh
+npm install
+npm run db:migrate:local
+npm run dev
+```
+
+The first login dynamically registers an OAuth client for the current origin and stores it in D1. Apply migrations before deploying with `npm run deploy`.
 
 ## Features
-- Hardcoded 'credentials' in plain text
+- Dynamic OAuth client registration
+- D1-backed accounts, transactions, sessions, and chat history
 - GET parameters for 'sensitive data'
 - Render-blocking scripts
 - Super genuine "hacked" warnings
@@ -22,7 +29,8 @@ This site intentionally has security vulnerabilities, performance nightmares, an
 - Real human
 
 ## Security Notes
-All passwords stored in plain text for "easier debugging" 
+
+Passwords are owned by Southbag Identity. This app stores only hashed opaque session tokens and uses a PKCE-only public OAuth client.
 
 ---
 *This is satire. Please don't actually build websites like this.*

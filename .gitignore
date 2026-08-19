@@ -2,3 +2,5 @@ allpisswords.txt
 
 .env.local
 .vercel
+node_modules/
+.wrangler/

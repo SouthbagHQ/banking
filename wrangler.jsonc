@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "southbag-online-banking",
+  "account_id": "1044a3131c99356eba069325d3be3788",
+  "main": "worker.js",
+  "compatibility_date": "2026-08-15",
+  "workers_dev": true,
+  "routes": [
+    { "pattern": "banking.southbag.cc", "custom_domain": true }
+  ],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "southbag-online-banking",
+      "database_id": "43a4e76a-b997-403a-ad4e-6bbabc008469"
+    }
+  ],
+  "observability": { "enabled": true }
+}
