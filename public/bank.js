@@ -12,7 +12,7 @@ async function request(path, options) {
 async function loadAccount() {
   account = await request('/api/account');
   document.getElementById('welcome').textContent = 'Welcome, ' + (account.user.name || account.user.email || 'customer');
-  document.getElementById('balanceDisplay').textContent = 'Balance: ' + money(account.balance) + ' (D1 says so)';
+  document.getElementById('balanceDisplay').textContent = 'Balance: ' + money(account.balance);
   const transactions = document.getElementById('transactions');
   transactions.replaceChildren();
   (account.transactions.length ? account.transactions : [{ description: 'Suspiciously, nothing has happened yet.' }]).forEach(item => {
