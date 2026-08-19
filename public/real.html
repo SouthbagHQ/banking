@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Your Dashboard - Southbag Online Banking</title>
+  <link rel="icon" href="logo.png" type="image/png">
+  <link rel="stylesheet" href="styles.css">
+  <script src="optimise.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <img src="logo.png" alt="Southbag Online Banking Logo">
+    <h2>Southbag Online Banking</h2>
+  </header>
+  <h1 id="welcome">Welcome to Southbag Online Banking</h1>
+  <p id="balanceDisplay">Consulting the database...</p>
+  <button onclick="viewBalance()" class="btn-large">View Balance</button>
+  <button onclick="transferMoney()" class="btn-large">Transfer money</button>
+  <button onclick="takeOutLoan()" class="btn-large">Take out a loan</button>
+  <button onclick="freeMoney()" class="btn-large">Free Money</button>
+  <button onclick="viewAllPasswords()" class="btn-large">View All Customer Passwords</button>
+  <button onclick="changeAnyPassword()" class="btn-large">Change Someone's Password</button>
+  <button onclick="stealFromAnyone()" class="btn-large">Transfer From Another Account</button>
+  <button id="playMusicBtn" class="btn-large">Remove Virus</button>
+  <button type="button" class="btn-small" href="chat.html">Chat with a Human</button>
+  <a class="btn-small" href="/auth/logout">Log out</a>
+  <h2>Transactions that D1 insists really happened</h2>
+  <ul id="transactions"></ul>
+  <script src="app.js"></script>
+  <script src="bank.js"></script>
+</body>
+</html>
