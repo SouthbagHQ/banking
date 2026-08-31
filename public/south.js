@@ -12,7 +12,16 @@ async function southRequest(body) {
   return data;
 }
 
-function southLog(text) {
+const DAILY_PUNISHMENT_ACTIONS = new Set([
+  'balance',
+  'daily',
+  'beg',
+  'mystery-fee',
+  'upgrade',
+]);
+
+function southLog(text, useAlert = false) {
+  if (useAlert) return alert(text);
   const panel = document.getElementById('southResult');
   if (!panel) return alert(text);
   panel.textContent = text;
@@ -24,9 +33,10 @@ function setText(id, text) {
 }
 
 async function southAction(action, extra = {}) {
+  const useAlert = DAILY_PUNISHMENT_ACTIONS.has(action);
   try {
     const result = await southRequest({ action, ...extra });
-    southLog(result.text || 'Kevin filed that somewhere.');
+    southLog(result.text || 'Kevin filed that somewhere.', useAlert);
     await loadAccount().catch(() => {});
     await southRefresh().catch(() => {});
     if (result.rows) {
@@ -34,7 +44,7 @@ async function southAction(action, extra = {}) {
     }
     return result;
   } catch (error) {
-    southLog(error.message);
+    southLog(error.message, useAlert);
   }
 }
 

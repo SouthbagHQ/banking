@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gift shop (all sales final) - Southbag Online Banking</title>
+  <link rel="icon" href="../logo.png" type="image/png">
+  <link rel="stylesheet" href="../styles.css">
+  <script src="../optimise.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <img src="../logo.png" alt="Southbag Online Banking Logo">
+    <h2>Southbag Online Banking</h2>
+  </header>
+  <h1 id="welcome">Welcome to Southbag Online Banking</h1>
+  <p id="balanceDisplay">Consulting the database...</p>
+  <p id="southStatus">Loading products Kevin has not fully approved...</p>
+  <pre id="southResult">Welcome. Fees apply to looking at this page, probably.</pre>
+  <nav id="southNav" class="south-nav" aria-label="Southbag products"></nav>
+
+  <section class="south-board">
+    <article class="south-card">
+      <h2>Gift shop (all sales final)</h2>
+      <div id="southShop"></div>
+      <h3>Inventory</h3>
+      <p id="southInventory">Nothing. Just like your prospects.</p>
+      <form data-south-form="combine">
+        <label>Combine two items</label>
+        <input name="itemA" placeholder="blahaj" required>
+        <input name="itemB" placeholder="kevins_stapler" required>
+        <button type="submit" class="btn-large">Combine ($0.25)</button>
+      </form>
+      <button type="button" class="btn-small" data-south="combine" data-south-args='{"sub":"list"}'>Show recipes</button>
+    </article>
+  </section>
+
+  <script src="../app.js"></script>
+  <script src="../bank.js"></script>
+  <script src="../south-nav.js"></script>
+  <script src="../south.js"></script>
+</body>
+</html>

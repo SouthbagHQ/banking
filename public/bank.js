@@ -14,6 +14,7 @@ async function loadAccount() {
   document.getElementById('welcome').textContent = 'Welcome, ' + (account.user.name || account.user.email || 'customer');
   document.getElementById('balanceDisplay').textContent = 'Balance: ' + money(account.balance);
   const transactions = document.getElementById('transactions');
+  if (!transactions) return;
   transactions.replaceChildren();
   (account.transactions.length ? account.transactions : [{ description: 'Suspiciously, nothing has happened yet.' }]).forEach(item => {
     const row = document.createElement('li');
@@ -62,5 +63,6 @@ async function stealFromAnyone() {
     alert('Only your own account changed. New balance: ' + money(await transact(amount, 'deposit', 'Suspicious inbound transfer')));
 }
 
-document.getElementById('playMusicBtn').onclick = () => new Audio('/virys.mp3').play();
+const playMusicBtn = document.getElementById('playMusicBtn');
+if (playMusicBtn) playMusicBtn.onclick = () => new Audio('/virys.mp3').play();
 loadAccount().catch(error => alert(error.message));
