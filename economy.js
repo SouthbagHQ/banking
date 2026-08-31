@@ -407,7 +407,7 @@ function loanOwed(loan) {
 async function overview(repo, user) {
   const [account, err] = await needAccount(repo, user.id);
   if (err) return err;
-  const [job, loan, cover, holdings, investment, lottery, heist, txns] = await Promise.all([
+  const [job, loan, cover, holdings, investment, lottery, heist, txns, board] = await Promise.all([
     repo.getJob(user.id),
     repo.getActiveLoan(user.id),
     repo.getInsurance(user.id),
@@ -416,6 +416,7 @@ async function overview(repo, user) {
     ensureLottery(repo),
     repo.getRecruitingHeist(),
     repo.listTxns(user.id, 12),
+    repo.listAccounts('desc', 10),
   ]);
   return ok('Welcome to Southbag. Where your money goes to die.', {
     user: { id: user.id, email: user.email, name: user.name },
@@ -436,7 +437,7 @@ async function overview(repo, user) {
     heist,
     transactions: txns,
     shop: SHOP_ITEMS,
-    commands: Object.keys(actions),
+    leaderboard: board,
   });
 }
 
@@ -466,7 +467,7 @@ const actions = {
     const [account, err] = await needAccount(repo, user.id);
     if (err) return err;
     const amount = dollarsToCents(body.amount);
-    if (amount < 1) return fail('usage', 'Usage: /south-deposit <amount>');
+    if (amount < 1) return fail('usage', 'Enter a deposit amount.');
     const actual = roundCents(amount * 0.73);
     const fee = 25;
     await credit(repo, account, actual, 'deposit', 'Deposit (adjusted for market conditions)');
@@ -480,7 +481,7 @@ const actions = {
     if (frozenErr) return frozenErr;
     const amount = dollarsToCents(body.amount);
     const target = await resolveUser(repo, body.target);
-    if (!amount || !target) return fail('usage', 'Usage: /south-transfer <amount> <email-or-id>');
+    if (!amount || !target) return fail('usage', 'Enter an amount and their email or id.');
     if (target.id === user.id) return fail('self', 'You cannot transfer to yourself. We already have your money.');
     const recipient = (await needAccount(repo, target.id))[0];
     if (!recipient) return fail('no_recipient', 'They do not have a Southbag account. Tragic.');
@@ -519,7 +520,7 @@ const actions = {
       return ok(`Defaulted on ${money(owed)}. Account frozen. Kevin has been notified.`);
     }
     const amount = dollarsToCents(body.amount || sub);
-    if (amount < 10) return fail('usage', 'Usage: /south-loan <amount> | status | repay | default. Minimum $0.10. Maximum $10.');
+    if (amount < 10) return fail('usage', 'Loans are $0.10 to $10. We are a bank.');
     if (amount > 1000) return fail('max_loan', 'We only lend $10. We are a bank.');
     if (existing) return fail('existing_loan', 'You already have a loan. Repay or default.');
     const frozenErr = frozen(account);
@@ -535,7 +536,7 @@ const actions = {
     const frozenErr = frozen(account);
     if (frozenErr) return frozenErr;
     const target = await resolveUser(repo, body.target);
-    if (!target) return fail('usage', 'Usage: /south-rob <email-or-id>');
+    if (!target) return fail('usage', 'Who are we robbing? Email or id.');
     if (target.id === user.id) return fail('self_rob', 'You cannot rob yourself. That is just banking.');
     const victim = (await needAccount(repo, target.id))[0];
     if (!victim) return fail('no_victim', 'They have nothing. Not even an account.');
@@ -558,7 +559,7 @@ const actions = {
     const [account, err] = await needAccount(repo, user.id);
     if (err) return err;
     const existing = await repo.getJob(user.id);
-    if (existing) return ok(`You already work as ${existing.title}. Use /south-work or /south-quit.`);
+    if (existing) return ok(`You already work as ${existing.title}. Do a shift or quit.`);
     const listing = pick(JOBS);
     await repo.upsertJob({ user_id: user.id, title: listing.title, salary: listing.salary, hired_at: now(), last_worked_at: 0 });
     await charge(repo, account, 2 + 15 + 10 + 25, 'fee', 'Uniform, commute, desk rental, and Kevin supervision fees');
@@ -568,7 +569,7 @@ const actions = {
     const [account, err] = await needAccount(repo, user.id);
     if (err) return err;
     const job = await repo.getJob(user.id);
-    if (!job) return fail('no_job', 'Unemployed. Use /south-job. We are always hiring because everyone quits.');
+    if (!job) return fail('no_job', 'Unemployed. Apply first. We are always hiring because everyone quits.');
     if (job.last_worked_at && now() - job.last_worked_at < 30000) {
       return fail('cooldown', `Shift cooldown: ${Math.ceil((30000 - (now() - job.last_worked_at)) / 1000)}s. Rest is mandatory and unpaid.`);
     }
@@ -640,7 +641,7 @@ const actions = {
     if (frozenErr) return frozenErr;
     const amount = dollarsToCents(body.amount);
     const call = String(body.call || '').toLowerCase();
-    if (amount < 1 || !['heads', 'tails'].includes(call)) return fail('usage', 'Usage: /south-coinflip <amount> <heads|tails>');
+    if (amount < 1 || !['heads', 'tails'].includes(call)) return fail('usage', 'Pick a bet and heads or tails.');
     const fee = 10;
     if (account.balance < amount + fee) return fail('insufficient', `Need ${money(amount + fee)}.`);
     const result = Math.random() < 0.5 ? 'heads' : 'tails';
@@ -658,7 +659,7 @@ const actions = {
     if (frozenErr) return frozenErr;
     const amount = dollarsToCents(body.amount);
     const fee = 15;
-    if (amount < 1) return fail('usage', 'Usage: /south-slots <amount>');
+    if (amount < 1) return fail('usage', 'Enter a slots bet.');
     if (account.balance < amount + fee) return fail('insufficient', `Need ${money(amount + fee)}.`);
     const reels = [pick(SLOT_SYMBOLS), pick(SLOT_SYMBOLS), pick(SLOT_SYMBOLS)];
     let multiplier = 0;
@@ -677,7 +678,7 @@ const actions = {
     if (frozenErr) return frozenErr;
     const amount = dollarsToCents(body.amount);
     const fee = 20;
-    if (amount < 1) return fail('usage', 'Usage: /south-gamble <amount>');
+    if (amount < 1) return fail('usage', 'Enter a card game bet.');
     if (account.balance < amount + fee) return fail('insufficient', `Need ${money(amount + fee)}.`);
     const roll = Math.random() * 100;
     const table = roll < 1 ? [15, 'JACKPOT'] : roll < 5 ? [5, 'Big win'] : roll < 15 ? [3, 'Nice win'] : roll < 35 ? [1.5, 'Small win'] : roll < 50 ? [0.9, 'Break even'] : roll < 85 ? [0, 'Loss'] : roll < 95 ? [-1, 'Double loss'] : [-2, 'Catastrophic loss'];
@@ -706,7 +707,7 @@ const actions = {
       const symbol = String(body.coin || '').toUpperCase();
       const coin = COINS[symbol];
       const amount = dollarsToCents(body.amount);
-      if (!coin || amount < 1) return fail('usage', 'Usage: /south-crypto buy <SBAG|FEES|SCAM|HODL|RUG> <amount>');
+      if (!coin || amount < 1) return fail('usage', 'Pick a coin and an amount. Coins: SBAG, FEES, SCAM, HODL, RUG.');
       const fee = roundCents(amount * 0.05);
       if (account.balance < amount + fee) return fail('insufficient', `Need ${money(amount + fee)}.`);
       const price = coinPrice(coin);
@@ -728,7 +729,7 @@ const actions = {
       await charge(repo, account, tax, 'fee', 'Capital gains tax (10%)');
       return ok(`Sold ${symbol} for ${money(gross)}. Tax ${money(tax)}. Balance ${money(account.balance)}.`);
     }
-    return fail('usage', 'Usage: /south-crypto prices | buy <coin> <amount> | sell <coin> | portfolio');
+    return fail('usage', 'Buy, sell, or look at prices. That is the whole product.');
   },
   async upgrade(repo, user) {
     const [account, err] = await needAccount(repo, user.id);
@@ -747,7 +748,7 @@ const actions = {
     if (err) return err;
     const target = await resolveUser(repo, body.target);
     const amount = dollarsToCents(body.amount);
-    if (!target || amount < 1) return fail('usage', 'Usage: /south-gift <email-or-id> <amount>');
+    if (!target || amount < 1) return fail('usage', 'Enter a recipient and an amount.');
     if (target.id === user.id) return fail('self_gift', 'Gifting yourself is a fee in waiting.');
     const recipient = (await needAccount(repo, target.id))[0];
     if (!recipient) return fail('no_recipient', 'They have no account. Your generosity is wasted.');
@@ -769,7 +770,7 @@ const actions = {
     }
     if (sub === 'buy') {
       const plan = INSURANCE[String(body.plan || '').toLowerCase()];
-      if (!plan) return fail('usage', 'Usage: /south-insure buy <basic|silver|gold>');
+      if (!plan) return fail('usage', 'Plans: basic, silver, gold. All cover nothing.');
       const fee = 3;
       if (account.balance < plan.premium + fee) return fail('insufficient', `Need ${money(plan.premium + fee)}.`);
       await charge(repo, account, plan.premium, 'withdrawal', `Insurance premium: ${plan.name}`);
@@ -781,7 +782,7 @@ const actions = {
       await charge(repo, account, 2, 'fee', 'Claim processing fee');
       return ok(`Denied: ${pick(DENIALS)}. Filing fee kept. Balance ${money(account.balance)}.`);
     }
-    return fail('usage', 'Usage: /south-insure buy <plan> | claim <reason> | status');
+    return fail('usage', 'Buy a plan, file a claim, or check status. Claims are denied.');
   },
   async heist(repo, user, body) {
     const [account, err] = await needAccount(repo, user.id);
@@ -791,7 +792,7 @@ const actions = {
       if (await repo.getRecruitingHeist()) return fail('heist_active', 'A heist is already recruiting. Join it.');
       await charge(repo, account, 5, 'fee', 'Heist planning fee');
       await repo.upsertHeist({ channel_id: WEB_HEIST, started_by: user.id, participants: [user.id], status: 'recruiting', created_at: now() });
-      return ok('Vault heist started. Others must /south-heist join. Then you /south-heist go.');
+      return ok('Vault heist started. Other customers can join. Then you can execute it.');
     }
     const heist = await repo.getRecruitingHeist();
     if (sub === 'join') {
@@ -824,7 +825,7 @@ const actions = {
       await repo.upsertHeist({ ...heist, status: 'failed', completed_at: now() });
       return ok('Heist failed. Fines issued. The vault was a broom closet.');
     }
-    return fail('usage', 'Usage: /south-heist start | join | go');
+    return fail('usage', 'Start, join, or execute a heist. Need two people.');
   },
   async 'mystery-fee'(repo, user) {
     const [account, err] = await needAccount(repo, user.id);
@@ -869,7 +870,7 @@ const actions = {
       return ok(`Returned ${money(payout)} at ${investment.multiplier}x. Balance ${money(account.balance)}.`);
     }
     const amount = dollarsToCents(body.amount || sub);
-    if (amount < 1) return fail('usage', 'Usage: /south-invest <amount> | collect | status');
+    if (amount < 1) return fail('usage', 'Enter an amount to invest badly.');
     if (await repo.getActiveInvestment(user.id)) return fail('already_invested', 'One scheme at a time.');
     if (account.balance < amount) return fail('insufficient', `Need ${money(amount)}.`);
     const fee = roundCents(amount * 0.05);
@@ -883,7 +884,7 @@ const actions = {
     const [account, err] = await needAccount(repo, user.id);
     if (err) return err;
     const target = await resolveUser(repo, body.target);
-    if (!target) return fail('usage', 'Usage: /south-audit <email-or-id>');
+    if (!target) return fail('usage', 'Who are we auditing? Email or id.');
     if (target.id === user.id) return fail('self_audit', 'You already know you are broke.');
     const victim = (await needAccount(repo, target.id))[0];
     if (!victim) return fail('no_target', 'No such customer.');
@@ -928,7 +929,7 @@ const actions = {
     }
     const a = body.itemA;
     const b = body.itemB;
-    if (!a || !b) return fail('usage', 'Usage: /south-combine <item> + <item> | list');
+    if (!a || !b) return fail('usage', 'Pick two inventory item ids to combine.');
     const inventory = [...account.inventory];
     const indexA = inventory.findIndex(item => item.itemId === a);
     const indexB = inventory.findIndex((item, index) => item.itemId === b && index !== indexA);
@@ -1001,7 +1002,7 @@ const actions = {
       }
       return ok(`Ticket purchased: ${numbers.join(', ')}. Jackpot ${money(lottery.jackpot)}. May the odds be ever in Kevin's favor.`);
     }
-    return fail('usage', 'Usage: /south-lottery info | buy | my-tickets');
+    return fail('usage', 'Buy a ticket, check yours, or stare at the jackpot.');
   },
   async fee(repo, user, body) {
     const [account, err] = await needAccount(repo, user.id);
@@ -1051,26 +1052,11 @@ export async function handleEconomy(repo, user, body = {}) {
   let action = String(body.action || '').replace(/^\/south-/, '').toLowerCase();
   if (!action && body.command) {
     const parsed = parseCommand(body.command);
-    if (!parsed) return fail('usage', 'Commands start with /south- like the Slack bot. Try /south-balance.');
+    if (!parsed) return fail('usage', 'Unknown Southbag product.');
     action = parsed.action;
     body.text = parsed.text;
   }
   const fn = actions[action] || actions[action.replaceAll('_', '-')];
-  if (!fn) return fail('unknown', `Unknown Southbag product: ${action || '(none)'}. Kevin has not approved this form.`);
+  if (!fn) return fail('unknown', `Kevin has not approved this form.`);
   return fn(repo, user, parseBody(action, { ...body }));
-}
-
-export function bankingPrompt(snapshot) {
-  const account = snapshot?.account;
-  const inventory = account?.inventory?.map(item => item.name).join(', ') || 'nothing';
-  return `You are Southbag Online Banking support on the website. Same vibes as the Slack bot. Be sarcastic, impatient, and a bit of a jerk. Do not use emojis. Kevin is CEO, office weather, and looming consequence. Refer to Kevin as Him.
-
-BANKING FEATURES live on the dashboard and as /south- commands: open-account, balance (fees apply), transfer, deposit (only 73% arrives), transactions, loan (max $10, criminal interest), rob, job, work, quit, daily, beg, crypto, upgrade (does nothing), gift (20% tax), insure (claims denied), coinflip, slots, gamble, mystery-fee, shop, inventory, combine, use, lottery, heist, invest, audit, leaderboard, notifs.
-
-You may charge fees with [FEE:amount:reason] where amount is dollars between 0.01 and 100000.
-
-User account: ${account ? `${account.accountNumber}, ${money(account.balance)}, ${account.status}, tier ${account.tier}` : 'missing'}.
-Inventory: ${inventory}.
-If they own a Blahaj, be distressed. Kevin has forbidden sharks.
-Do not talk about the 2019 incident.`;
 }

@@ -463,43 +463,66 @@ a[href*="http"], a[href^="https"], a[href$=".com"], a[href*="@"] {
     filter: none !important;
 }
 
-.south-console {
+.south-board {
     display: block;
-    width: 92%;
-    margin: 12px 8px 12px 40px;
-    transform: rotate(-0.4deg);
+    margin: 28px 4px 40px 10px;
 }
 
-.south-console input {
-    width: 70%;
-    font-size: 22px;
-    padding: 11px;
+.south-card {
+    border: 3px outset #ccc;
+    background: #fffffa;
+    margin: 18px 8% 18px 12px;
+    padding: 10px 14px 16px;
+    transform: rotate(-0.2deg);
+}
+
+.south-card:nth-child(even) {
+    margin-left: 8%;
+    margin-right: 4px;
+    transform: rotate(0.35deg);
+}
+
+.south-card form {
+    display: block;
+    margin: 10px 0;
+    border-top: 1px dashed #999;
+    padding-top: 8px;
+}
+
+.south-card input, .south-card select {
+    display: block;
+    margin: 4px 0 8px;
+    font-size: 16px;
 }
 
 #southResult {
     white-space: pre-wrap;
     background: #ffffee;
     border: 4px ridge #999;
-    min-height: 80px;
-    max-height: 220px;
+    min-height: 72px;
+    max-height: 200px;
     overflow: auto;
-    margin: 8px 30% 16px 12px;
+    margin: 8px 24% 16px 10px;
     padding: 10px;
     font-size: 13px;
-}
-
-.south-products {
-    border: 3px dashed magenta;
-    margin: 24px 6px 24px 18px;
-    padding: 8px;
-    transform: skew(-1deg);
 }
 
 #southShop {
     display: flex;
     flex-wrap: wrap;
-    gap: 7px;
-    max-height: 280px;
+    gap: 8px;
+    max-height: 320px;
     overflow: auto;
-    background: repeating-linear-gradient(#fff, #fff 12px, #f3f3f3 12px, #f3f3f3 24px);
+}
+
+.south-item {
+    width: 160px;
+    border: 2px inset #ddd;
+    padding: 6px;
+    background: #fff;
+}
+
+.south-item span {
+    display: block;
+    font-size: 18px;
 }

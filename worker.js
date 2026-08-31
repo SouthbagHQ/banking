@@ -1,4 +1,4 @@
-import { bankingPrompt, createD1Repo, handleEconomy } from './economy.js';
+import { createD1Repo, handleEconomy } from './economy.js';
 
 const issuer = 'https://identity.southbag.cc';
 const oauth = {
@@ -199,26 +199,12 @@ async function chatApi(request, env, user) {
   }
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
   if (!env.HCAI) return json({ error: 'Chat is not configured' }, 503);
-  const repo = createD1Repo(env.DB);
-  const snapshot = await handleEconomy(repo, user, { action: 'overview' }).catch(() => null);
-  const messages = [
-    { role: 'system', content: bankingPrompt(snapshot) },
-    ...body.messages.slice(-40),
-  ];
   const response = await fetch('https://ai.hackclub.com/proxy/v1/chat/completions', {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${env.HCAI}` },
-    body: JSON.stringify({ model: 'google/gemini-3-flash-preview', messages }),
+    body: JSON.stringify({ model: 'google/gemini-3-flash-preview', messages: body.messages }),
   });
-  const payload = await response.json().catch(() => ({}));
-  const content = payload?.choices?.[0]?.message?.content;
-  if (typeof content === 'string') {
-    const fee = content.match(/\[FEE:([\d.]+):(.*?)\]/);
-    if (fee) {
-      await handleEconomy(repo, user, { action: 'fee', amount: fee[1], reason: fee[2] }).catch(() => {});
-    }
-  }
-  return json(payload, response.status);
+  return new Response(response.body, { status: response.status, headers: { 'content-type': 'application/json' } });
 }
 
 async function economyApi(request, env, user) {

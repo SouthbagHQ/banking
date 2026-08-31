@@ -10,7 +10,7 @@ This site intentionally has security vulnerabilities, performance nightmares, an
 
 This now runs as a Cloudflare Worker with static assets, D1 storage, and OIDC login through `identity.southbag.cc`.
 
-The dashboard also has the Slack bot's banking products — jobs, gambling, crypto, the gift shop, heists, loans that should be illegal, and `/south-` commands — stored in the same D1 database. No Convex.
+The dashboard also has the Slack bot's banking products — jobs, gambling, crypto, the gift shop, heists, and loans that should be illegal — stored in the same D1 database.
 
 ```sh
 npm install

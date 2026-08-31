@@ -355,12 +355,6 @@
                 cleanText = cleanText.replace(/\[GLITCH\]/i, '').trim();
             }
 
-            const feeMatch = cleanText.match(/\[FEE:([\d.]+):(.*?)\]/);
-            if (feeMatch) {
-                commands.push({ type: 'fee', amount: feeMatch[1], reason: feeMatch[2] });
-                cleanText = cleanText.replace(feeMatch[0], '').trim();
-            }
-
             return { commands, cleanText };
         }
 
@@ -594,9 +588,6 @@
                         break;
                     case 'glitch':
                         executeGlitch();
-                        break;
-                    case 'fee':
-                        executePopup('Charged $' + Number(cmd.amount).toFixed(2) + ' for: ' + cmd.reason);
                         break;
                 }
             }
