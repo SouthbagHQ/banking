@@ -1,3 +1,5 @@
+import { bankingPrompt, createD1Repo, handleEconomy } from './economy.js';
+
 const issuer = 'https://identity.southbag.cc';
 const oauth = {
   authorize: issuer + '/api/auth/oauth2/authorize',
@@ -119,13 +121,20 @@ async function callback(request, env) {
   if (!userResponse.ok || !user.sub) return json({ error: 'Could not load identity profile' }, 502);
 
   const now = Date.now();
+  const number = [
+    Math.floor(Math.random() * 9000 + 1000),
+    'SBAG',
+    Math.floor(Math.random() * 90000 + 10000),
+    String.fromCharCode(65 + Math.floor(Math.random() * 26)),
+  ].join('-');
   await env.DB.batch([
     env.DB.prepare(`INSERT INTO users (id, email, name, picture, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET
       email = excluded.email, name = excluded.name, picture = excluded.picture, updated_at = excluded.updated_at`)
       .bind(user.sub, user.email || null, user.name || null, user.picture || null, now, now),
-    env.DB.prepare('INSERT OR IGNORE INTO accounts (user_id, balance, updated_at) VALUES (?, 1000000, ?)')
-      .bind(user.sub, now),
+    env.DB.prepare(`INSERT OR IGNORE INTO accounts
+      (user_id, balance, updated_at, account_number, status, inventory) VALUES (?, 1000000, ?, ?, 'active', '[]')`)
+      .bind(user.sub, now, number),
   ]);
   const token = random();
   await env.DB.prepare('INSERT INTO sessions VALUES (?, ?, ?, ?)')
@@ -190,12 +199,34 @@ async function chatApi(request, env, user) {
   }
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
   if (!env.HCAI) return json({ error: 'Chat is not configured' }, 503);
+  const repo = createD1Repo(env.DB);
+  const snapshot = await handleEconomy(repo, user, { action: 'overview' }).catch(() => null);
+  const messages = [
+    { role: 'system', content: bankingPrompt(snapshot) },
+    ...body.messages.slice(-40),
+  ];
   const response = await fetch('https://ai.hackclub.com/proxy/v1/chat/completions', {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${env.HCAI}` },
-    body: JSON.stringify({ model: 'google/gemini-3-flash-preview', messages: body.messages }),
+    body: JSON.stringify({ model: 'google/gemini-3-flash-preview', messages }),
   });
-  return new Response(response.body, { status: response.status, headers: { 'content-type': 'application/json' } });
+  const payload = await response.json().catch(() => ({}));
+  const content = payload?.choices?.[0]?.message?.content;
+  if (typeof content === 'string') {
+    const fee = content.match(/\[FEE:([\d.]+):(.*?)\]/);
+    if (fee) {
+      await handleEconomy(repo, user, { action: 'fee', amount: fee[1], reason: fee[2] }).catch(() => {});
+    }
+  }
+  return json(payload, response.status);
+}
+
+async function economyApi(request, env, user) {
+  const repo = createD1Repo(env.DB);
+  if (request.method === 'GET') return json(await handleEconomy(repo, user, { action: 'overview' }));
+  if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+  const body = await request.json().catch(() => ({}));
+  return json(await handleEconomy(repo, user, body));
 }
 
 export default {
@@ -222,6 +253,7 @@ export default {
           return json({ error: 'Invalid origin' }, 403);
         if (url.pathname === '/api/account') return await accountApi(request, env, user);
         if (url.pathname === '/api/chat') return await chatApi(request, env, user);
+        if (url.pathname === '/api/economy') return await economyApi(request, env, user);
         return json({ error: 'Not found' }, 404);
       }
       return await env.ASSETS.fetch(request);

@@ -15,6 +15,13 @@
   </header>
   <h1 id="welcome">Welcome to Southbag Online Banking</h1>
   <p id="balanceDisplay">Consulting the database...</p>
+  <p id="southStatus">Loading Southbag products...</p>
+  <form id="southCommandForm" class="south-console">
+    <label>Type a /south- command, like a person who has Slack but worse</label>
+    <input id="southCommand" name="command" placeholder="/south-balance" autocomplete="off">
+    <button type="submit" class="btn-large">Submit to Kevin</button>
+  </form>
+  <pre id="southResult">The products department is thinking.</pre>
   <button onclick="viewBalance()" class="btn-large">View Balance</button>
   <button onclick="transferMoney()" class="btn-large">Transfer money</button>
   <button onclick="takeOutLoan()" class="btn-large">Take out a loan</button>
@@ -25,9 +32,51 @@
   <button id="playMusicBtn" class="btn-large">Remove Virus</button>
   <button type="button" class="btn-small" href="https://support.southbag.cc/ai">Chat with a Human</button>
   <a class="btn-small" href="/auth/logout">Log out</a>
+  <section class="south-products">
+    <h2>Southbag Products (beta) (final) (do not use)</h2>
+    <p>Same vibes as the Slack bot. Worse interface. Fees still apply.</p>
+    <button type="button" class="btn-large" data-south="balance">/south-balance</button>
+    <button type="button" class="btn-small" data-south="transactions">/south-transactions</button>
+    <button type="button" class="btn-large" data-south="mystery-fee">/south-mystery-fee</button>
+    <button type="button" class="btn-small" data-south="daily">/south-daily</button>
+    <button type="button" class="btn-large" data-south="beg">/south-beg</button>
+    <button type="button" class="btn-small" data-south="job">/south-job</button>
+    <button type="button" class="btn-large" data-south="work">/south-work</button>
+    <button type="button" class="btn-small" data-south="quit">/south-quit</button>
+    <button type="button" class="btn-large" data-south="upgrade">/south-upgrade</button>
+    <button type="button" class="btn-small" data-south="inventory">/south-inventory</button>
+    <button type="button" class="btn-large" data-south="notifs">/south-notifs</button>
+    <button type="button" class="btn-small" data-south="leaderboard">/south-leaderboard</button>
+    <button type="button" class="btn-large" data-south="leaderboard" data-south-args='{"sub":"bottom"}'>Wall of Shame</button>
+    <button type="button" class="btn-small" data-south="deposit" data-south-fields='[{"key":"amount","label":"Deposit how many dollars so we can keep 27%?"}]'>/south-deposit</button>
+    <button type="button" class="btn-large" data-south="transfer" data-south-fields='[{"key":"amount","label":"Amount"},{"key":"target","label":"Victim email or id"}]'>/south-transfer</button>
+    <button type="button" class="btn-small" data-south="gift" data-south-fields='[{"key":"target","label":"Recipient email or id"},{"key":"amount","label":"Amount"}]'>/south-gift</button>
+    <button type="button" class="btn-large" data-south="rob" data-south-fields='[{"key":"target","label":"Who are we robbing (email or id)?"}]'>/south-rob</button>
+    <button type="button" class="btn-small" data-south="audit" data-south-fields='[{"key":"target","label":"Who are we auditing?"}]'>/south-audit</button>
+    <button type="button" class="btn-large" data-south="loan" data-south-fields='[{"key":"text","label":"amount, status, repay, or default"}]'>/south-loan</button>
+    <button type="button" class="btn-small" data-south="coinflip" data-south-fields='[{"key":"amount","label":"Bet"},{"key":"call","label":"heads or tails"}]'>/south-coinflip</button>
+    <button type="button" class="btn-large" data-south="slots" data-south-fields='[{"key":"amount","label":"Slot bet"}]'>/south-slots</button>
+    <button type="button" class="btn-small" data-south="gamble" data-south-fields='[{"key":"amount","label":"Card game bet"}]'>/south-gamble</button>
+    <button type="button" class="btn-large" data-south="crypto" data-south-args='{"sub":"prices"}'>Crypto prices</button>
+    <button type="button" class="btn-small" data-south="crypto" data-south-args='{"sub":"portfolio"}'>Crypto portfolio</button>
+    <button type="button" class="btn-large" data-south="crypto" data-south-fields='[{"key":"coin","label":"SBAG FEES SCAM HODL or RUG"},{"key":"amount","label":"Dollars to waste"}]' data-south-args='{"sub":"buy"}'>Buy crypto</button>
+    <button type="button" class="btn-small" data-south="insure" data-south-fields='[{"key":"plan","label":"basic, silver, or gold"}]' data-south-args='{"sub":"buy"}'>Buy insurance</button>
+    <button type="button" class="btn-large" data-south="insure" data-south-args='{"sub":"claim"}'>File a claim</button>
+    <button type="button" class="btn-small" data-south="heist" data-south-args='{"sub":"start"}'>Start heist</button>
+    <button type="button" class="btn-large" data-south="heist" data-south-args='{"sub":"join"}'>Join heist</button>
+    <button type="button" class="btn-small" data-south="heist" data-south-args='{"sub":"go"}'>Go heist</button>
+    <button type="button" class="btn-large" data-south="invest" data-south-fields='[{"key":"amount","label":"How much to invest badly"}]'>/south-invest</button>
+    <button type="button" class="btn-small" data-south="invest" data-south-args='{"sub":"collect"}'>Collect investment</button>
+    <button type="button" class="btn-large" data-south="lottery" data-south-args='{"sub":"info"}'>Lottery info</button>
+    <button type="button" class="btn-small" data-south="lottery" data-south-fields='[{"key":"text","label":"Three numbers from 1-20, like 3 17 8"}]' data-south-args='{"sub":"buy"}'>Buy lottery</button>
+    <button type="button" class="btn-large" data-south="combine" data-south-args='{"sub":"list"}'>Combine recipes</button>
+    <h3>Gift shop (all sales final)</h3>
+    <div id="southShop"></div>
+  </section>
   <h2>Transactions</h2>
   <ul id="transactions"></ul>
   <script src="app.js"></script>
   <script src="bank.js"></script>
+  <script src="south.js"></script>
 </body>
 </html>

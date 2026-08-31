@@ -10,6 +10,8 @@ This site intentionally has security vulnerabilities, performance nightmares, an
 
 This now runs as a Cloudflare Worker with static assets, D1 storage, and OIDC login through `identity.southbag.cc`.
 
+The dashboard also has the Slack bot's banking products — jobs, gambling, crypto, the gift shop, heists, loans that should be illegal, and `/south-` commands — stored in the same D1 database. No Convex.
+
 ```sh
 npm install
 npm run db:migrate:local
@@ -21,6 +23,7 @@ The first login dynamically registers an OAuth client for the current origin and
 ## Features
 - Dynamic OAuth client registration
 - D1-backed accounts, transactions, sessions, and chat history
+- Slack-bot-style products: mystery fees, jobs, gambling, shop, heists, loans
 - GET parameters for 'sensitive data'
 - Render-blocking scripts
 - Super genuine "hacked" warnings

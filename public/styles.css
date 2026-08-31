@@ -462,3 +462,44 @@ a[href*="http"], a[href^="https"], a[href$=".com"], a[href*="@"] {
     cursor: pointer;
     filter: none !important;
 }
+
+.south-console {
+    display: block;
+    width: 92%;
+    margin: 12px 8px 12px 40px;
+    transform: rotate(-0.4deg);
+}
+
+.south-console input {
+    width: 70%;
+    font-size: 22px;
+    padding: 11px;
+}
+
+#southResult {
+    white-space: pre-wrap;
+    background: #ffffee;
+    border: 4px ridge #999;
+    min-height: 80px;
+    max-height: 220px;
+    overflow: auto;
+    margin: 8px 30% 16px 12px;
+    padding: 10px;
+    font-size: 13px;
+}
+
+.south-products {
+    border: 3px dashed magenta;
+    margin: 24px 6px 24px 18px;
+    padding: 8px;
+    transform: skew(-1deg);
+}
+
+#southShop {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    max-height: 280px;
+    overflow: auto;
+    background: repeating-linear-gradient(#fff, #fff 12px, #f3f3f3 12px, #f3f3f3 24px);
+}
