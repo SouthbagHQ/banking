@@ -463,6 +463,43 @@ a[href*="http"], a[href^="https"], a[href$=".com"], a[href*="@"] {
     filter: none !important;
 }
 
+.south-nav {
+    margin: 12px 8% 20px 10px;
+    padding: 8px 12px;
+    border: 3px groove #bbb;
+    background: #f8f8f0;
+}
+
+.south-nav ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.south-nav a {
+    font-size: 15px;
+    text-decoration: underline;
+}
+
+.south-nav a[aria-current="page"] {
+    font-weight: bold;
+    text-decoration: none;
+    color: #800;
+}
+
+.south-hub-links {
+    margin: 10px 0 0;
+    padding-left: 24px;
+    line-height: 1.8;
+}
+
+.south-hub-links a {
+    font-size: 17px;
+}
+
 .south-board {
     display: block;
     margin: 28px 4px 40px 10px;

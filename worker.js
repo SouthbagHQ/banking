@@ -229,7 +229,8 @@ export default {
 
       const user = await session(request, env);
       if (url.pathname === '/api/session') return json(user ? { authenticated: true, user: { id: user.id, email: user.email, name: user.name, picture: user.picture } } : { authenticated: false });
-      const protectedPage = ['/real', '/real.html', '/secureportal.html'].includes(url.pathname);
+      const protectedPage = ['/real', '/real.html', '/secureportal.html'].includes(url.pathname)
+        || url.pathname.startsWith('/south/');
       if (protectedPage && !user)
         return redirect(url.origin + '/?login=required');
       if (url.pathname === '/secureportal.html') return redirect(url.origin + '/real.html');

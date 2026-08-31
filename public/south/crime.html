@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Crime desk - Southbag Online Banking</title>
+  <link rel="icon" href="../logo.png" type="image/png">
+  <link rel="stylesheet" href="../styles.css">
+  <script src="../optimise.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <img src="../logo.png" alt="Southbag Online Banking Logo">
+    <h2>Southbag Online Banking</h2>
+  </header>
+  <h1 id="welcome">Welcome to Southbag Online Banking</h1>
+  <p id="balanceDisplay">Consulting the database...</p>
+  <p id="southStatus">Loading products Kevin has not fully approved...</p>
+  <pre id="southResult">Welcome. Fees apply to looking at this page, probably.</pre>
+  <nav id="southNav" class="south-nav" aria-label="Southbag products"></nav>
+
+  <section class="south-board">
+    <article class="south-card">
+      <h2>Crime desk</h2>
+      <p id="southHeist">No heist is recruiting. Start one and ruin a group of strangers.</p>
+      <form data-south-form="rob">
+        <label>Rob this customer</label>
+        <input name="target" type="text" required>
+        <button type="submit" class="btn-large">Attempt robbery</button>
+      </form>
+      <form data-south-form="audit">
+        <label>Audit this customer ($0.25)</label>
+        <input name="target" type="text" required>
+        <button type="submit" class="btn-small">Expose them</button>
+      </form>
+      <button type="button" class="btn-large" data-south="heist" data-south-args='{"sub":"start"}'>Plan a vault heist</button>
+      <button type="button" class="btn-small" data-south="heist" data-south-args='{"sub":"join"}'>Join the heist</button>
+      <button type="button" class="btn-large" data-south="heist" data-south-args='{"sub":"go"}'>Execute heist</button>
+    </article>
+  </section>
+
+  <script src="../app.js"></script>
+  <script src="../bank.js"></script>
+  <script src="../south-nav.js"></script>
+  <script src="../south.js"></script>
+</body>
+</html>
