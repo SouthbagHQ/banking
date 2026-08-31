@@ -18,7 +18,6 @@ const DAILY_PUNISHMENT_ACTIONS = new Set([
   'beg',
   'mystery-fee',
   'upgrade',
-  'notifs',
 ]);
 
 function southLog(text, useAlert = false) {
