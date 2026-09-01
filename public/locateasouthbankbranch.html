@@ -26,10 +26,10 @@
     
     <!-- Broken map container -->
     <div id="map" style="width: 100%; height: 450px; background: #e0e0e0; position: relative; margin: 20px 0;">
-        <div id="mapStatus" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: #666;">
+        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: #666;">
             <h3>Map Loading...</h3>
             <p style="font-size: 12px;">Please wait while we load the map</p>
-            <div id="mapSpinner" style="border: 3px solid #f3f3f3; border-top: 3px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 2s linear infinite; margin: 20px auto;"></div>
+            <div style="border: 3px solid #f3f3f3; border-top: 3px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 2s linear infinite; margin: 20px auto;"></div>
         </div>
     </div>
     
@@ -174,7 +174,7 @@
             }
         }, 3000);
         
-        // Cycle loading messages, then offer an external map link
+        // Add random "loading" messages
         let loadingMessages = [
             'Connecting to mapping service...',
             'Loading branch data...',
@@ -186,24 +186,17 @@
         ];
         
         let msgIndex = 0;
-        const loadingInterval = setInterval(() => {
-            const status = document.getElementById('mapStatus');
-            const statusText = status && status.querySelector('p');
-            if (statusText && msgIndex < loadingMessages.length) {
-                statusText.textContent = loadingMessages[msgIndex];
+        setInterval(() => {
+            const mapDiv = document.querySelector('#map div');
+            if (mapDiv && msgIndex < loadingMessages.length) {
+                mapDiv.querySelector('p').textContent = loadingMessages[msgIndex];
                 msgIndex = (msgIndex + 1) % loadingMessages.length;
             }
         }, 2000);
 
         setTimeout(() => {
-            clearInterval(loadingInterval);
-            const status = document.getElementById('mapStatus');
-            if (!status) return;
-            status.innerHTML =
-                '<h3>Map unavailable</h3>' +
-                '<p style="font-size: 12px; margin-bottom: 16px;">Our in-page map could not load. Use the branch locator instead.</p>' +
-                '<a href="https://branch-locator.southbag.cc" class="btn-small">Open map</a>';
-        }, 5000);
+            window.location.href = 'https://branch-locator.southbag.cc';
+        }, 7000);
     </script>
     
     <script src="app.js"></script>
