@@ -157,7 +157,7 @@
         slide.className = 'carousel-slide' + (idx === 0 ? ' active' : '');
         
         const img = document.createElement('img');
-        img.src = 'loaders/' + imgNum + '.png';
+        img.src = '/loaders/' + imgNum + '.png';
         img.alt = 'Promo ' + imgNum;
         
         slide.appendChild(img);
