@@ -532,18 +532,6 @@ a[href*="http"], a[href^="https"], a[href$=".com"], a[href*="@"] {
     font-size: 16px;
 }
 
-#southResult {
-    white-space: pre-wrap;
-    background: #ffffee;
-    border: 4px ridge #999;
-    min-height: 72px;
-    max-height: 200px;
-    overflow: auto;
-    margin: 8px 24% 16px 10px;
-    padding: 10px;
-    font-size: 13px;
-}
-
 #southShop {
     display: flex;
     flex-wrap: wrap;

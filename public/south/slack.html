@@ -16,7 +16,6 @@
   <h1 id="welcome">Welcome to Southbag Online Banking</h1>
   <p id="balanceDisplay">Consulting the database...</p>
   <p id="southStatus">Loading products Kevin has not fully approved...</p>
-  <pre id="southResult">Slack is a lifestyle. Your money already lived there.</pre>
   <nav id="southNav" class="south-nav" aria-label="Southbag products"></nav>
 
   <section class="south-board">
@@ -52,15 +51,14 @@
       already_linked: 'This Southbag account already has a Slack hostage.',
       access_denied: 'You clicked cancel. Coward.',
     };
-    const panel = document.getElementById('southResult');
     if (params.get('imported') === '1') {
-      panel.textContent = 'Slack data imported. Your previous web balance has been overwritten. Fees apply to remembering it.';
+      alert('Slack data imported. Your previous web balance has been overwritten. Fees apply to remembering it.');
     } else if (params.get('empty') === '1') {
-      panel.textContent = 'Linked, but the Slack dump has never heard of you. You start broke in a new way.';
+      alert('Linked, but the Slack dump has never heard of you. You start broke in a new way.');
     } else if (params.get('linked') === '1') {
-      panel.textContent = 'Already linked. We kept the hostage.';
+      alert('Already linked. We kept the hostage.');
     } else if (params.get('error')) {
-      panel.textContent = errors[params.get('error')] || ('Slack said ' + params.get('error') + '.');
+      alert(errors[params.get('error')] || ('Slack said ' + params.get('error') + '.'));
     }
 
     fetch('/api/slack').then(r => r.json()).then(status => {
