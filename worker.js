@@ -1,4 +1,13 @@
 import { createD1Repo, handleEconomy } from './economy.js';
+import {
+  decodeJwtPayload,
+  exchangeSlackCode,
+  linkSlackAccount,
+  loadSlackProfile,
+  slackAuthorizeUrl,
+  slackConfigured,
+  slackUserIdFromProfile,
+} from './slack-link.js';
 
 const issuer = 'https://identity.southbag.cc';
 const oauth = {
@@ -9,6 +18,7 @@ const oauth = {
 };
 const sessionCookie = 'southbag_session';
 const stateCookie = 'southbag_oauth_state';
+const slackStateCookie = 'southbag_slack_state';
 
 const json = (data, status = 200, headers = {}) => new Response(JSON.stringify(data), {
   status,
@@ -67,7 +77,8 @@ async function login(request, env) {
   const nonce = random();
   const challenge = await hash(verifier);
   await env.DB.prepare('DELETE FROM oauth_states WHERE expires_at < ?').bind(Date.now()).run();
-  await env.DB.prepare('INSERT INTO oauth_states VALUES (?, ?, ?, ?, ?)')
+  await env.DB.prepare(`INSERT INTO oauth_states (state, origin, verifier, nonce, expires_at, kind, user_id)
+    VALUES (?, ?, ?, ?, ?, 'identity', NULL)`)
     .bind(state, origin, verifier, nonce, Date.now() + 10 * 60 * 1000).run();
   const target = new URL(oauth.authorize);
   target.search = new URLSearchParams({
@@ -146,8 +157,9 @@ async function session(request, env) {
   const token = getCookie(request, sessionCookie);
   if (!token) return null;
   const tokenHash = await hash(token);
-  const value = await env.DB.prepare(`SELECT users.id, users.email, users.name, users.picture, accounts.balance,
-    sessions.expires_at FROM sessions JOIN users ON users.id = sessions.user_id
+  const value = await env.DB.prepare(`SELECT users.id, users.email, users.name, users.picture,
+    users.slack_user_id, users.slack_name, users.slack_linked_at, users.slack_imported,
+    accounts.balance, sessions.expires_at FROM sessions JOIN users ON users.id = sessions.user_id
     JOIN accounts ON accounts.user_id = users.id WHERE sessions.token_hash = ?`).bind(tokenHash).first();
   if (!value || value.expires_at < Date.now()) {
     await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(tokenHash).run();
@@ -215,12 +227,91 @@ async function economyApi(request, env, user) {
   return json(await handleEconomy(repo, user, body));
 }
 
+function slackRedirect(origin, params, clearState = true) {
+  const target = new URL('/south/slack.html', origin);
+  target.search = new URLSearchParams(params);
+  return redirect(target.toString(), clearState ? cookie(slackStateCookie, '', 0) : undefined);
+}
+
+function slackSummary(env, user) {
+  return {
+    configured: slackConfigured(env),
+    linked: Boolean(user?.slack_user_id),
+    slackUserId: user?.slack_user_id || null,
+    slackName: user?.slack_name || null,
+    imported: Boolean(user?.slack_imported),
+    linkedAt: user?.slack_linked_at || null,
+  };
+}
+
+async function slackLinkStart(request, env, user) {
+  const origin = new URL(request.url).origin;
+  if (!slackConfigured(env)) return slackRedirect(origin, { error: 'not_configured' }, false);
+  const state = random();
+  const nonce = random();
+  const redirectUri = origin + '/auth/slack/callback';
+  await env.DB.prepare('DELETE FROM oauth_states WHERE expires_at < ?').bind(Date.now()).run();
+  await env.DB.prepare(`INSERT INTO oauth_states (state, origin, verifier, nonce, expires_at, kind, user_id)
+    VALUES (?, ?, '', ?, ?, 'slack', ?)`)
+    .bind(state, origin, nonce, Date.now() + 10 * 60 * 1000, user.id).run();
+  return redirect(slackAuthorizeUrl({
+    clientId: env.SLACK_CLIENT_ID,
+    redirectUri,
+    state,
+    nonce,
+  }), cookie(slackStateCookie, state, 600));
+}
+
+async function slackCallback(request, env) {
+  const url = new URL(request.url);
+  const origin = url.origin;
+  const state = url.searchParams.get('state');
+  if (!state || state !== getCookie(request, slackStateCookie))
+    return slackRedirect(origin, { error: 'invalid_state' });
+  const pending = await env.DB.prepare("SELECT * FROM oauth_states WHERE state = ? AND kind = 'slack'")
+    .bind(state).first();
+  await env.DB.prepare('DELETE FROM oauth_states WHERE state = ?').bind(state).run();
+  if (!pending || pending.expires_at < Date.now() || !pending.user_id)
+    return slackRedirect(origin, { error: 'expired' });
+  if (url.searchParams.get('error'))
+    return slackRedirect(origin, { error: url.searchParams.get('error') });
+  if (!slackConfigured(env)) return slackRedirect(origin, { error: 'not_configured' });
+
+  const code = url.searchParams.get('code');
+  if (!code) return slackRedirect(origin, { error: 'missing_code' });
+  try {
+    const tokens = await exchangeSlackCode({
+      clientId: env.SLACK_CLIENT_ID,
+      clientSecret: env.SLACK_CLIENT_SECRET,
+      code,
+      redirectUri: pending.origin + '/auth/slack/callback',
+    });
+    const claims = decodeJwtPayload(tokens.id_token);
+    if (!claims || claims.nonce !== pending.nonce) return slackRedirect(origin, { error: 'invalid_nonce' });
+    const profile = await loadSlackProfile(tokens.access_token);
+    const slackUserId = slackUserIdFromProfile(profile) || slackUserIdFromProfile(claims);
+    if (!slackUserId) return slackRedirect(origin, { error: 'missing_slack_user' });
+    const result = await linkSlackAccount(env.DB, {
+      userId: pending.user_id,
+      slackUserId,
+      slackName: profile.name || claims.name || null,
+    });
+    if (!result.ok) return slackRedirect(origin, { error: result.error });
+    if (result.alreadyLinked) return slackRedirect(origin, { linked: '1' });
+    return slackRedirect(origin, result.imported ? { imported: '1' } : { linked: '1', empty: '1' });
+  } catch (error) {
+    console.error(error);
+    return slackRedirect(origin, { error: 'slack_exchange' });
+  }
+}
+
 export default {
   async fetch(request, env) {
     try {
       const url = new URL(request.url);
       if (url.pathname === '/auth/login') return await login(request, env);
       if (url.pathname === '/auth/callback') return await callback(request, env);
+      if (url.pathname === '/auth/slack/callback') return await slackCallback(request, env);
       if (url.pathname === '/auth/logout') {
         const token = getCookie(request, sessionCookie);
         if (token) await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(await hash(token)).run();
@@ -228,7 +319,19 @@ export default {
       }
 
       const user = await session(request, env);
-      if (url.pathname === '/api/session') return json(user ? { authenticated: true, user: { id: user.id, email: user.email, name: user.name, picture: user.picture } } : { authenticated: false });
+      if (url.pathname === '/auth/slack/link') {
+        if (!user) return redirect(url.origin + '/?login=required');
+        return await slackLinkStart(request, env, user);
+      }
+      if (url.pathname === '/api/session') {
+        return json(user
+          ? { authenticated: true, user: { id: user.id, email: user.email, name: user.name, picture: user.picture }, slack: slackSummary(env, user) }
+          : { authenticated: false, slack: { configured: slackConfigured(env), linked: false } });
+      }
+      if (url.pathname === '/api/slack') {
+        if (!user) return json({ error: 'Authentication required' }, 401);
+        return json(slackSummary(env, user));
+      }
       const protectedPage = ['/real', '/real.html', '/secureportal.html'].includes(url.pathname)
         || url.pathname.startsWith('/south/');
       if (protectedPage && !user)

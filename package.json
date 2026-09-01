@@ -3,12 +3,13 @@
   "version": "1.0.0",
   "description": "A ***deliberately terrible*** 'online banking' website made for Borked, a bad site jam as a satirical version of my banks online banking system. I dont like it that much.",
   "scripts": {
-    "test": "node --test tests/economy.test.js && wrangler deploy --dry-run",
-    "build": "node --check worker.js && node --check economy.js",
+    "test": "node --test tests/economy.test.js tests/slack-link.test.js && wrangler deploy --dry-run",
+    "build": "node --check worker.js && node --check economy.js && node --check slack-link.js",
     "dev": "wrangler dev",
     "deploy": "wrangler d1 migrations apply DB --remote && wrangler deploy",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
-    "db:migrate:remote": "wrangler d1 migrations apply DB --remote"
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "db:build-slack-legacy": "node scripts/build-slack-legacy-sql.js"
   },
   "repository": {
     "type": "git",

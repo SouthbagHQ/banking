@@ -11,6 +11,7 @@ const SOUTH_SECTIONS = [
   { href: '/south/investments.html', label: 'Investments' },
   { href: '/south/lottery.html', label: "Kevin's Numbers" },
   { href: '/south/shop.html', label: 'Gift shop (all sales final)' },
+  { href: '/south/slack.html', label: 'Link Slack' },
   { href: '/south/shaming.html', label: 'Public shaming' },
 ];
 

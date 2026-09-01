@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Link Slack - Southbag Online Banking</title>
+  <link rel="icon" href="../logo.png" type="image/png">
+  <link rel="stylesheet" href="../styles.css">
+  <script src="../optimise.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <img src="../logo.png" alt="Southbag Online Banking Logo">
+    <h2>Southbag Online Banking</h2>
+  </header>
+  <h1 id="welcome">Welcome to Southbag Online Banking</h1>
+  <p id="balanceDisplay">Consulting the database...</p>
+  <p id="southStatus">Loading products Kevin has not fully approved...</p>
+  <pre id="southResult">Slack is a lifestyle. Your money already lived there.</pre>
+  <nav id="southNav" class="south-nav" aria-label="Southbag products"></nav>
+
+  <section class="south-board">
+    <article class="south-card">
+      <h2>Link your Slack account</h2>
+      <p>This overwrites your current Southbag balance, jobs, loans, inventory, and every embarrassing transaction with whatever the Slack bot remembers about you. There is no undo. Kevin thinks that is funny.</p>
+      <p id="slackStatus">Asking Slack if it still likes us...</p>
+      <p id="slackLinked"></p>
+      <p>
+        <a id="slackLinkButton" class="btn-large" href="/auth/slack/link" hidden>
+          <img src="https://platform.slack-edge.com/img/sign_in_with_slack.png" alt="Sign in with Slack" width="170" height="40">
+        </a>
+      </p>
+      <p id="slackHelp"></p>
+    </article>
+  </section>
+
+  <script src="../app.js"></script>
+  <script src="../bank.js"></script>
+  <script src="../south-nav.js"></script>
+  <script src="../south.js"></script>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const errors = {
+      not_configured: 'Slack linking is not configured. Someone still has to make the app. Probably you.',
+      invalid_state: 'OAuth state was wrong. Either you forged this or we lost the cookie. Both are on-brand.',
+      expired: 'The Slack handshake expired. Try again, slower.',
+      missing_code: 'Slack sent you back with no code. Rude.',
+      invalid_nonce: 'Nonce mismatch. Someone in the middle had a little fun.',
+      missing_slack_user: 'Slack refused to admit who you are.',
+      slack_exchange: 'Slack token exchange failed. Check the client secret. Then check it again.',
+      linked_elsewhere: 'That Slack account is already attached to a different Southbag customer. We do not do joint accounts.',
+      already_linked: 'This Southbag account already has a Slack hostage.',
+      access_denied: 'You clicked cancel. Coward.',
+    };
+    const panel = document.getElementById('southResult');
+    if (params.get('imported') === '1') {
+      panel.textContent = 'Slack data imported. Your previous web balance has been overwritten. Fees apply to remembering it.';
+    } else if (params.get('empty') === '1') {
+      panel.textContent = 'Linked, but the Slack dump has never heard of you. You start broke in a new way.';
+    } else if (params.get('linked') === '1') {
+      panel.textContent = 'Already linked. We kept the hostage.';
+    } else if (params.get('error')) {
+      panel.textContent = errors[params.get('error')] || ('Slack said ' + params.get('error') + '.');
+    }
+
+    fetch('/api/slack').then(r => r.json()).then(status => {
+      const statusEl = document.getElementById('slackStatus');
+      const linkedEl = document.getElementById('slackLinked');
+      const button = document.getElementById('slackLinkButton');
+      const help = document.getElementById('slackHelp');
+      if (status.error) {
+        statusEl.textContent = status.error;
+        return;
+      }
+      if (!status.configured) {
+        statusEl.textContent = 'Slack is not configured on this deploy. Put SLACK_CLIENT_ID and SLACK_CLIENT_SECRET in Wrangler secrets.';
+        help.textContent = 'Create a Slack app, enable Sign in with Slack, and add the redirect URL /auth/slack/callback.';
+        return;
+      }
+      if (status.linked) {
+        statusEl.textContent = 'Linked to Slack user ' + status.slackUserId + (status.slackName ? ' (' + status.slackName + ')' : '') + '.';
+        linkedEl.textContent = status.imported
+          ? 'Legacy Slack-bot data was imported over this account.'
+          : 'Linked, with no matching Slack-bot dump. Your web data stayed.';
+        button.hidden = true;
+      } else {
+        statusEl.textContent = 'Not linked. Your current web account will be overwritten if Slack remembers you.';
+        button.hidden = false;
+      }
+    }).catch(error => {
+      document.getElementById('slackStatus').textContent = error.message;
+    });
+  </script>
+</body>
+</html>
