@@ -43,7 +43,7 @@ SLACK_CLIENT_SECRET=...
 ```
 
 6. Apply D1 migrations (`npm run db:migrate:local` / `npm run db:migrate:remote`). Migration `0004` loads the Slack-bot snapshot (dollar amounts converted to cents).
-7. Customers log in with Southbag Identity, open **Link Slack**, and complete Sign in with Slack. Matching dump rows replace their current balance, transactions, job, loans, insurance, crypto, investments, inventory, and lottery tickets.
+7. Customers log in with Southbag Identity, open **Link Slack**, and complete Sign in with Slack. `GET /auth/slack/onboard` does the same in one hop for `southbag.cc/onboarding?flow=slack-banking`: it runs the Identity login if there is no banking session (`/auth/login?next=/auth/slack/link` under the hood, with the destination kept in a short-lived cookie) and then starts the Slack handshake immediately. Matching dump rows replace their current balance, transactions, job, loans, insurance, crypto, investments, inventory, and lottery tickets.
 
 To rebuild `migrations/0004_slack_legacy_data.sql` from a Convex zip:
 

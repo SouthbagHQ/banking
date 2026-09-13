@@ -22,16 +22,19 @@ const oauth = {
 };
 const sessionCookie = 'southbag_session';
 const stateCookie = 'southbag_oauth_state';
+const returnToCookie = 'southbag_oauth_return';
 const slackStateCookie = 'southbag_slack_state';
+const slackLinkPath = '/auth/slack/link';
 
 const json = (data, status = 200, headers = {}) => new Response(JSON.stringify(data), {
   status,
   headers: { 'content-type': 'application/json', ...headers },
 });
-const redirect = (url, cookie) => new Response(null, {
-  status: 302,
-  headers: { location: url, ...(cookie ? { 'set-cookie': cookie } : {}) },
-});
+const redirect = (url, ...cookies) => {
+  const headers = new Headers({ location: String(url) });
+  for (const value of cookies) if (value) headers.append('set-cookie', value);
+  return new Response(null, { status: 302, headers });
+};
 const cookie = (name, value, maxAge) =>
   `${name}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
 const getCookie = (request, name) => request.headers.get('cookie')
@@ -42,6 +45,11 @@ const base64url = value => {
   return btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
 };
 const hash = async value => base64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
+// Only same-origin paths may be used as a post-login destination; anything else falls back to the dashboard.
+const safeReturnTo = value => (typeof value === 'string' && /^\/(?![\/\\])/.test(value) ? value : null);
+const readReturnTo = request => {
+  try { return safeReturnTo(decodeURIComponent(getCookie(request, returnToCookie) || '')); } catch { return null; }
+};
 
 async function getClient(env, origin) {
   let client = await env.DB.prepare('SELECT * FROM oauth_clients WHERE origin = ?').bind(origin).first();
@@ -72,7 +80,7 @@ async function getClient(env, origin) {
   return client;
 }
 
-async function login(request, env) {
+async function login(request, env, returnTo = null) {
   const url = new URL(request.url);
   const origin = url.origin;
   const client = await getClient(env, origin);
@@ -95,7 +103,8 @@ async function login(request, env) {
     code_challenge: challenge,
     code_challenge_method: 'S256',
   });
-  return redirect(target, cookie(stateCookie, state, 600));
+  return redirect(target, cookie(stateCookie, state, 600),
+    returnTo ? cookie(returnToCookie, encodeURIComponent(returnTo), 600) : cookie(returnToCookie, '', 0));
 }
 
 async function callback(request, env) {
@@ -154,7 +163,9 @@ async function callback(request, env) {
   const token = random();
   await env.DB.prepare('INSERT INTO sessions VALUES (?, ?, ?, ?)')
     .bind(await hash(token), user.sub, now + 7 * 86400000, now).run();
-  return redirect(pending.origin + '/real.html', cookie(sessionCookie, token, 7 * 86400));
+  const returnTo = readReturnTo(request) || '/real.html';
+  return redirect(pending.origin + returnTo, cookie(sessionCookie, token, 7 * 86400),
+    cookie(stateCookie, '', 0), cookie(returnToCookie, '', 0));
 }
 
 async function session(request, env) {
@@ -317,7 +328,7 @@ export default {
       const url = new URL(request.url);
       // Slack Events API, slash commands and interactivity all point here (signature-verified, no session).
       if (slackBotPaths.has(url.pathname)) return await handleSlackRequest(request, env, ctx);
-      if (url.pathname === '/auth/login') return await login(request, env);
+      if (url.pathname === '/auth/login') return await login(request, env, safeReturnTo(url.searchParams.get('next')));
       if (url.pathname === '/auth/callback') return await callback(request, env);
       if (url.pathname === '/auth/slack/callback') return await slackCallback(request, env);
       if (url.pathname === '/auth/logout') {
@@ -327,7 +338,13 @@ export default {
       }
 
       const user = await session(request, env);
-      if (url.pathname === '/auth/slack/link') {
+      // Entry point for southbag.cc/onboarding?flow=slack-banking: sign in (or up) through Identity
+      // if needed, then go straight into the Sign in with Slack handshake.
+      if (url.pathname === '/auth/slack/onboard') {
+        if (user) return redirect(url.origin + slackLinkPath);
+        return await login(request, env, slackLinkPath);
+      }
+      if (url.pathname === slackLinkPath) {
         if (!user) return redirect(url.origin + '/?login=required');
         return await slackLinkStart(request, env, user);
       }
