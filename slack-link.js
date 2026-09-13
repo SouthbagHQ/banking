@@ -106,9 +106,40 @@ async function remapSlackIds(db, userId, slackUserId) {
   if (updates.length) await db.batch(updates);
 }
 
+const SHADOW_PREFIX = 'slack:';
+const MOVED_TABLES = ['transactions', 'jobs', 'loans', 'insurance', 'crypto_holdings', 'investments', 'lottery_tickets'];
+
+// The Slack bot plays against a shadow user (`slack:U…`) until the customer links on
+// the web. Linking moves everything the shadow owns onto the real user and deletes it.
+export function mergeShadowStatements(db, userId, shadowId, slackUserId, slackName, now = Date.now()) {
+  return [
+    db.prepare(`UPDATE accounts SET (balance, account_number, status, tier, inventory, last_daily_at, last_beg_at, last_fee_at,
+      notifications, strikes, is_admin, is_banned, ban_expiry, ban_reason) =
+      (SELECT balance, account_number, status, tier, inventory, last_daily_at, last_beg_at, last_fee_at,
+      notifications, strikes, is_admin, is_banned, ban_expiry, ban_reason FROM accounts WHERE user_id = ?), updated_at = ?
+      WHERE user_id = ?`).bind(shadowId, now, userId),
+    ...MOVED_TABLES.map(table => db.prepare(`DELETE FROM ${table} WHERE user_id = ?`).bind(userId)),
+    ...MOVED_TABLES.map(table => db.prepare(`UPDATE ${table} SET user_id = ? WHERE user_id = ?`).bind(userId, shadowId)),
+    db.prepare('DELETE FROM accounts WHERE user_id = ?').bind(shadowId),
+    db.prepare('DELETE FROM users WHERE id = ?').bind(shadowId),
+    db.prepare(`UPDATE users SET slack_user_id = ?, slack_name = ?, slack_linked_at = ?, slack_imported = 1, updated_at = ?
+      WHERE id = ?`).bind(slackUserId, slackName || null, now, now, userId),
+  ];
+}
+
 export async function linkSlackAccount(db, { userId, slackUserId, slackName }) {
   if (!userId || !slackUserId) return { ok: false, error: 'missing_ids', imported: false };
   const taken = await db.prepare('SELECT id FROM users WHERE slack_user_id = ?').bind(slackUserId).first();
+  if (taken && taken.id === SHADOW_PREFIX + slackUserId) {
+    const current = await db.prepare('SELECT slack_user_id FROM users WHERE id = ?').bind(userId).first();
+    if (current?.slack_user_id && current.slack_user_id !== slackUserId) {
+      return { ok: false, error: 'already_linked', imported: false };
+    }
+    await db.batch(mergeShadowStatements(db, userId, taken.id, slackUserId, slackName));
+    await remapSlackIds(db, userId, taken.id);
+    await remapSlackIds(db, userId, slackUserId);
+    return { ok: true, imported: true, merged: true, alreadyLinked: false };
+  }
   if (taken && taken.id !== userId) {
     return { ok: false, error: 'linked_elsewhere', imported: false };
   }

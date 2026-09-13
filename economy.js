@@ -1,9 +1,14 @@
-const money = cents => '$' + (Number(cents || 0) / 100).toFixed(2);
+import { overwriteStatements } from './slack-link.js';
+
+export const money = cents => '$' + (Number(cents || 0) / 100).toFixed(2);
 const roundCents = value => Math.round(Number(value) || 0);
 const dollarsToCents = value => roundCents(Number(value) * 100);
 const now = () => Date.now();
 const pick = list => list[Math.floor(Math.random() * list.length)];
 const WEB_HEIST = 'web:lobby';
+const SLACK_USER_PREFIX = 'slack:';
+const OPENING_BALANCES = [1, 3, 47, 123, 350, 69, 201, 10, 420, 99];
+const who = user => user?.name || user?.email || user?.id || 'someone';
 
 export const JOBS = [
   { title: 'Southbag Branch Greeter', salary: 15000 },
@@ -183,7 +188,8 @@ async function needAccount(repo, userId) {
 
 async function resolveUser(repo, hint) {
   if (!hint) return null;
-  const cleaned = String(hint).replace(/^<@/, '').replace(/>$/, '').replace(/^@/, '').trim();
+  const cleaned = String(hint).replace(/^<@/, '').replace(/>$/, '').replace(/\|.*$/, '').replace(/^@/, '').trim();
+  if (!cleaned) return null;
   return repo.findUser(cleaned);
 }
 
@@ -206,6 +212,8 @@ export function createMemoryRepo() {
   const investments = [];
   const lotteries = [];
   const tickets = [];
+  const slackMessages = [];
+  const slackEvents = new Set();
   let next = 1;
   const id = () => next++;
   return {
@@ -214,9 +222,30 @@ export function createMemoryRepo() {
     async findUser(hint) {
       const lower = hint.toLowerCase();
       for (const user of users.values()) {
-        if (user.id === hint || (user.email && user.email.toLowerCase() === lower)) return user;
+        if (user.id === hint || user.slack_user_id === hint || (user.email && user.email.toLowerCase() === lower)) return user;
       }
       return null;
+    },
+    async getUserBySlackId(slackUserId) {
+      for (const user of users.values()) if (user.slack_user_id === slackUserId) return user;
+      return null;
+    },
+    async createSlackUser({ id, slack_user_id, name, balance }) {
+      users.set(id, { id, email: null, name: name || null, slack_user_id, created_at: now() });
+      accounts.set(id, { user_id: id, balance, updated_at: now(), account_number: accountNumber(), status: 'active', inventory: [], notifications: 0, strikes: 0 });
+      return users.get(id);
+    },
+    async hasSlackLegacy() { return false; },
+    async importSlackLegacy() { return false; },
+    async addSlackMessage(row) { slackMessages.push({ id: id(), ...row }); },
+    async listSlackMessages(channelId, threadTs, limit) {
+      return slackMessages.filter(row => row.channel_id === channelId && row.thread_ts === threadTs)
+        .sort((a, b) => a.created_at - b.created_at).slice(-limit);
+    },
+    async rememberSlackEvent(eventId) {
+      if (slackEvents.has(eventId)) return false;
+      slackEvents.add(eventId);
+      return true;
     },
     async getAccount(userId) {
       const account = accounts.get(userId);
@@ -230,7 +259,10 @@ export function createMemoryRepo() {
     },
     async listAccounts(direction, limit) {
       const rows = [...accounts.values()].sort((a, b) => direction === 'asc' ? a.balance - b.balance : b.balance - a.balance);
-      return rows.slice(0, limit);
+      return rows.slice(0, limit).map(row => {
+        const user = users.get(row.user_id);
+        return { ...row, name: user?.name || null, slack_user_id: user?.slack_user_id || null };
+      });
     },
     async addTxn(row) { transactions.push({ id: id(), ...row }); },
     async listTxns(userId, limit) {
@@ -288,13 +320,54 @@ export function createD1Repo(db) {
   const parseAccount = row => row ? { ...row, inventory: parseInventory(row.inventory) } : null;
   const parseHeist = row => row ? { ...row, participants: parseInventory(row.participants) } : null;
   return {
-    async getUser(userId) { return one('SELECT id, email, name FROM users WHERE id = ?', userId); },
+    async getUser(userId) { return one('SELECT id, email, name, slack_user_id FROM users WHERE id = ?', userId); },
     async findUser(hint) {
-      return one('SELECT id, email, name FROM users WHERE id = ? OR lower(email) = lower(?)', hint, hint);
+      return one('SELECT id, email, name, slack_user_id FROM users WHERE id = ? OR slack_user_id = ? OR lower(email) = lower(?)', hint, hint, hint);
+    },
+    async getUserBySlackId(slackUserId) {
+      return one('SELECT id, email, name, slack_user_id FROM users WHERE slack_user_id = ?', slackUserId);
+    },
+    async createSlackUser({ id, slack_user_id, name, balance }) {
+      const at = now();
+      await db.batch([
+        db.prepare(`INSERT INTO users (id, email, name, picture, created_at, updated_at, slack_user_id, slack_name, slack_linked_at)
+          VALUES (?, NULL, ?, NULL, ?, ?, ?, ?, ?)`).bind(id, name || null, at, at, slack_user_id, name || null, at),
+        db.prepare(`INSERT INTO accounts (user_id, balance, updated_at, account_number, status, inventory)
+          VALUES (?, ?, ?, ?, 'active', '[]')`).bind(id, balance, at, accountNumber()),
+      ]);
+      return one('SELECT id, email, name, slack_user_id FROM users WHERE id = ?', id);
+    },
+    async hasSlackLegacy(slackUserId) {
+      return Boolean(await one('SELECT slack_user_id FROM slack_legacy_accounts WHERE slack_user_id = ?', slackUserId));
+    },
+    async importSlackLegacy(userId, slackUserId) {
+      const legacy = await one('SELECT * FROM slack_legacy_accounts WHERE slack_user_id = ?', slackUserId);
+      if (!legacy) return false;
+      const items = await all('SELECT item_id, name, bought_at FROM slack_legacy_inventory WHERE slack_user_id = ? ORDER BY id', slackUserId);
+      legacy.inventory = JSON.stringify(items.map(item => ({ itemId: item.item_id, name: item.name, boughtAt: item.bought_at })));
+      await db.batch([
+        db.prepare('UPDATE users SET slack_imported = 1, name = COALESCE(name, ?) WHERE id = ?').bind(legacy.name, userId),
+        ...overwriteStatements(db, userId, slackUserId, legacy, now()),
+      ]);
+      return true;
+    },
+    async addSlackMessage(row) {
+      await run('INSERT INTO slack_messages (channel_id, thread_ts, role, content, user_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        row.channel_id, row.thread_ts, row.role, row.content, row.user_id || null, row.created_at);
+    },
+    async listSlackMessages(channelId, threadTs, limit) {
+      const rows = await all('SELECT role, content, user_id, created_at FROM slack_messages WHERE channel_id = ? AND thread_ts = ? ORDER BY created_at DESC, id DESC LIMIT ?',
+        channelId, threadTs, limit);
+      return rows.reverse();
+    },
+    async rememberSlackEvent(eventId) {
+      const result = await run('INSERT OR IGNORE INTO slack_events (event_id, created_at) VALUES (?, ?)', eventId, now());
+      if (Math.random() < 0.05) await run('DELETE FROM slack_events WHERE created_at < ?', now() - 86400000);
+      return (result.meta?.changes ?? 1) > 0;
     },
     async getAccount(userId) { return parseAccount(await one('SELECT * FROM accounts WHERE user_id = ?', userId)); },
     async updateAccount(userId, fields) {
-      const allowed = ['balance', 'updated_at', 'account_number', 'status', 'tier', 'inventory', 'last_daily_at', 'last_beg_at', 'last_fee_at', 'notifications', 'strikes'];
+      const allowed = ['balance', 'updated_at', 'account_number', 'status', 'tier', 'inventory', 'last_daily_at', 'last_beg_at', 'last_fee_at', 'notifications', 'strikes', 'is_admin', 'is_banned', 'ban_expiry', 'ban_reason'];
       const sets = [];
       const values = [];
       for (const key of allowed) {
@@ -308,7 +381,8 @@ export function createD1Repo(db) {
     },
     async listAccounts(direction, limit) {
       const order = direction === 'asc' ? 'ASC' : 'DESC';
-      return all(`SELECT user_id, balance, status, tier, account_number FROM accounts ORDER BY balance ${order} LIMIT ?`, limit);
+      return all(`SELECT accounts.user_id, accounts.balance, accounts.status, accounts.tier, accounts.account_number, users.name, users.slack_user_id
+        FROM accounts JOIN users ON users.id = accounts.user_id ORDER BY accounts.balance ${order} LIMIT ?`, limit);
     },
     async addTxn(row) {
       await run('INSERT INTO transactions (user_id, amount, kind, description, created_at) VALUES (?, ?, ?, ?, ?)',
@@ -366,10 +440,10 @@ export function createD1Repo(db) {
     },
     async getOpenLottery() { return one("SELECT * FROM lotteries WHERE status = 'open' ORDER BY id DESC LIMIT 1"); },
     async upsertLottery(row) {
-      if (row.id) await run('UPDATE lotteries SET jackpot=?, status=?, winning_numbers=?, drawn_at=? WHERE id=?',
-        row.jackpot, row.status, row.winning_numbers || null, row.drawn_at || null, row.id);
-      else await run('INSERT INTO lotteries (name, ticket_price, max_number, pick_count, jackpot, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        row.name, row.ticket_price, row.max_number, row.pick_count, row.jackpot, row.status, row.created_at);
+      if (row.id) await run('UPDATE lotteries SET jackpot=?, status=?, winning_numbers=?, drawn_at=?, winner_id=? WHERE id=?',
+        row.jackpot, row.status, row.winning_numbers || null, row.drawn_at || null, row.winner_id || null, row.id);
+      else await run('INSERT INTO lotteries (name, ticket_price, max_number, pick_count, jackpot, status, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        row.name, row.ticket_price, row.max_number, row.pick_count, row.jackpot, row.status, row.created_at, row.created_by || null);
     },
     async addLotteryTicket(row) {
       await run('INSERT INTO lottery_tickets (lottery_id, user_id, numbers, created_at) VALUES (?, ?, ?, ?)',
@@ -431,7 +505,10 @@ async function overview(repo, user) {
     job,
     loan: loan ? { ...loan, owed: loanOwed(loan) } : null,
     insurance: cover,
-    crypto: holdings,
+    crypto: holdings.map(row => {
+      const price = coinPrice(COINS[row.coin] || { base: 0, volatility: 0 });
+      return { ...row, current_price: price, value: roundCents(row.amount * price), gain_loss: roundCents(row.amount * (price - row.bought_at)) };
+    }),
     investment,
     lottery,
     heist,
@@ -455,7 +532,7 @@ const actions = {
   },
   async 'open-account'(repo, user) {
     const [account] = await needAccount(repo, user.id);
-    return ok(`You already have account ${account.account_number}. We do not do seconds.`);
+    return ok(`You already have account ${account.account_number}. We do not do seconds.`, { account });
   },
   async transactions(repo, user) {
     const txns = await repo.listTxns(user.id, 20);
@@ -488,9 +565,9 @@ const actions = {
     const fees = 50 + roundCents(amount * 0.15) + 2 + 10 + 7 + 3 + roundCents(amount * 0.03) + 15;
     const total = amount + fees;
     if (account.balance < total) return fail('insufficient', `Need ${money(total)}, have ${money(account.balance)}.`);
-    await charge(repo, account, amount, 'transfer', `Transfer to ${target.email || target.id}`);
+    await charge(repo, account, amount, 'transfer', `Transfer to ${who(target)}`);
     await charge(repo, account, fees, 'fee', 'Transfer fees (15% + processing + breathing + Kevin + digital transit + existence + cross-desk + compliance theater)');
-    await credit(repo, recipient, amount, 'deposit', `Transfer from ${user.email || user.id}`);
+    await credit(repo, recipient, amount, 'deposit', `Transfer from ${who(user)}`);
     return ok(`Sent ${money(amount)}. Fees ${money(fees)}. They got the amount. We got the rest. Balance ${money(account.balance)}.`);
   },
   async loan(repo, user, body) {
@@ -754,9 +831,9 @@ const actions = {
     if (!recipient) return fail('no_recipient', 'They have no account. Your generosity is wasted.');
     const tax = roundCents(amount * 0.20);
     if (account.balance < amount + tax) return fail('insufficient', `Need ${money(amount + tax)} including 20% generosity tax.`);
-    await charge(repo, account, amount, 'transfer', `Gift to ${target.email || target.id}`);
+    await charge(repo, account, amount, 'transfer', `Gift to ${who(target)}`);
     await charge(repo, account, tax, 'fee', 'Generosity tax (20%)');
-    await credit(repo, recipient, amount, 'deposit', `Gift from ${user.email || user.id}`);
+    await credit(repo, recipient, amount, 'deposit', `Gift from ${who(user)}`);
     return ok(`Gifted ${money(amount)}. Tax ${money(tax)}. Being nice costs extra.`);
   },
   async insure(repo, user, body) {
@@ -847,7 +924,7 @@ const actions = {
     const rows = await repo.listAccounts(direction, 10);
     if (!rows.length) return ok('No accounts exist yet. Somehow.');
     const title = direction === 'asc' ? 'THE WALL OF SHAME' : 'THE LEADERBOARD (temporary)';
-    const lines = rows.map((row, index) => `${index + 1}. ${row.user_id.slice(0, 8)} — ${money(row.balance)} (${row.status || 'active'})`);
+    const lines = rows.map((row, index) => `${index + 1}. ${row.name || row.user_id.slice(0, 8)} — ${money(row.balance)} (${row.status || 'active'})`);
     return ok(`${title}\n${lines.join('\n')}`, { rows });
   },
   async invest(repo, user, body) {
@@ -889,10 +966,11 @@ const actions = {
     const victim = (await needAccount(repo, target.id))[0];
     if (!victim) return fail('no_target', 'No such customer.');
     if (account.balance < 25) return fail('insufficient', 'Audit fee is $0.25.');
-    await charge(repo, account, 25, 'fee', `Audit fee (target: ${target.email || target.id})`);
+    await charge(repo, account, 25, 'fee', `Audit fee (target: ${who(target)})`);
     const txns = await repo.listTxns(target.id, 5);
     const lines = txns.map(row => `${row.description} ${money(row.amount)}`).join('\n') || 'none';
-    return ok(`AUDIT ${target.email || target.id}\nBalance ${money(victim.balance)}\nStatus ${victim.status}\n${lines}\nPrivacy is a myth.`);
+    return ok(`AUDIT ${who(target)}\nBalance ${money(victim.balance)}\nStatus ${victim.status}\n${lines}\nPrivacy is a myth.`,
+      { target: { ...target, balance: victim.balance, status: victim.status, tier: victim.tier || 'None', account_number: victim.account_number }, transactions: txns, fee: 25 });
   },
   async shop(repo, user, body) {
     const [account, err] = await needAccount(repo, user.id);
@@ -908,12 +986,29 @@ const actions = {
     if (frozenErr) return frozenErr;
     const qty = Math.max(1, Math.min(99, Number(body.quantity) || 1));
     const cost = item.price * qty;
-    if (account.balance < cost) return fail('insufficient', `You have ${money(account.balance)}. ${item.name} costs ${money(cost)}. Have you tried not being broke?`);
+    if (account.balance < cost) return fail('insufficient', `You have ${money(account.balance)}. ${item.name} costs ${money(cost)}. Have you tried not being broke?`, { balance: account.balance, price: cost, item });
+    if (body.tribute) {
+      await charge(repo, account, cost, 'withdrawal', `Tribute to Kevin: ${item.name}`);
+      return ok(`Kevin took the ${item.name}. He did not say thank you. Balance ${money(account.balance)}.`, { item, price: cost, balance: account.balance });
+    }
+    if (body.recipient) {
+      const target = await resolveUser(repo, body.recipient);
+      if (!target) return fail('no_recipient', 'That person does not exist. Gift something to someone real.');
+      if (target.id === user.id) return fail('self_gift', 'You cannot gift yourself. That is just buying with extra steps.');
+      const recipient = (await needAccount(repo, target.id))[0];
+      if (!recipient) return fail('no_recipient', 'They do not have a Southbag account. Your generosity is wasted.');
+      const theirs = [...recipient.inventory];
+      for (let i = 0; i < qty; i++) theirs.push({ itemId, name: item.name, boughtAt: now() + i, giftedBy: user.id });
+      await charge(repo, account, cost, 'withdrawal', `Gift: ${item.name} to ${who(target)}`);
+      await repo.updateAccount(target.id, { inventory: theirs });
+      return ok(`Gifted ${item.name}${qty > 1 ? ' x' + qty : ''} to ${who(target)} for ${money(cost)}. They will not thank you. Balance ${money(account.balance)}.`,
+        { item, price: cost, balance: account.balance, recipient: target });
+    }
     const inventory = [...account.inventory];
     for (let i = 0; i < qty; i++) inventory.push({ itemId, name: item.name, boughtAt: now() + i });
     await charge(repo, account, cost, 'withdrawal', `Shop purchase: ${item.name}${qty > 1 ? ' x' + qty : ''}`);
     await repo.updateAccount(user.id, { inventory });
-    return ok(`Bought ${item.name} x${qty} for ${money(cost)}. All sales final. Balance ${money(account.balance)}.`);
+    return ok(`Bought ${item.name} x${qty} for ${money(cost)}. All sales final. Balance ${money(account.balance)}.`, { item, price: cost, quantity: qty, balance: account.balance });
   },
   async inventory(repo, user) {
     const [account, err] = await needAccount(repo, user.id);
@@ -935,16 +1030,23 @@ const actions = {
     const indexB = inventory.findIndex((item, index) => item.itemId === b && index !== indexA);
     await charge(repo, account, 25, 'fee', 'Crafting fee');
     if (indexA < 0 || indexB < 0) return fail('missing_items', 'You do not own those. Failed attempt fee still applies. Wait, we charged the success fee anyway.');
-    const combo = COMBOS[comboKey(a, b)];
+    let combo = COMBOS[comboKey(a, b)];
+    if (!combo && body.resultName) {
+      const resultName = String(body.resultName).trim().slice(0, 100) || 'Unknown Combination';
+      const description = String(body.resultDescription || '').trim().slice(0, 500) || 'A mysterious fusion of two items.';
+      combo = { resultId: 'combo:' + resultName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''), resultName, description };
+    }
     if (!combo) {
       await charge(repo, account, 10, 'fee', 'Failed combination fee');
       return fail('no_recipe', 'Those do not combine. Kevin shook his head. Quietly.');
     }
+    const ingredients = [inventory[indexA].name, inventory[indexB].name];
     inventory.splice(Math.max(indexA, indexB), 1);
     inventory.splice(Math.min(indexA, indexB), 1);
-    inventory.push({ itemId: combo.resultId, name: combo.resultName, boughtAt: now() });
+    const created = { itemId: combo.resultId, name: combo.resultName, description: combo.description, ingredients, boughtAt: now() };
+    inventory.push(created);
     await repo.updateAccount(user.id, { inventory });
-    return ok(`Created ${combo.resultName}. ${combo.description} Balance ${money(account.balance)}.`);
+    return ok(`Created ${combo.resultName}. ${combo.description} Balance ${money(account.balance)}.`, { item: created, ingredients, fee: 25, balance: account.balance });
   },
   async use(repo, user, body) {
     const [account, err] = await needAccount(repo, user.id);
@@ -954,24 +1056,27 @@ const actions = {
     const index = account.inventory.findIndex(item => item.itemId === itemId);
     if (index < 0) return fail('missing_item', 'You do not have that.');
     const combo = Object.values(COMBOS).find(item => item.resultId === itemId);
+    const used = account.inventory[index];
+    if (!String(itemId).startsWith('combo:')) return fail('not_combined', `${used.name} is not a combined item. Craft something first.`);
     await charge(repo, account, 50, 'fee', 'Item usage fee');
     const inventory = [...account.inventory];
     inventory.splice(index, 1);
     await repo.updateAccount(user.id, { inventory });
-    if (target === 'kevin') return ok('Kevin caught it. He kept it. You have made a mistake.');
-    if (combo) return ok(combo.support);
-    return ok('You used it. Something happened. We charged you anyway.');
+    const extra = { item: { ...used, description: used.description || combo?.description || 'Unknown. Even we do not know.' }, target, fee: 50, balance: account.balance, scripted: Boolean(combo) };
+    if (target === 'kevin') return ok('Kevin caught it. He kept it. You have made a mistake.', extra);
+    if (combo) return ok(combo.support, extra);
+    return ok('You used it. Something happened. We charged you anyway.', extra);
   },
   async lottery(repo, user, body) {
     const [account, err] = await needAccount(repo, user.id);
     if (err) return err;
     const lottery = await ensureLottery(repo);
     const sub = String(body.sub || 'info').toLowerCase();
-    if (sub === 'info') return ok(`${lottery.name}. Ticket ${money(lottery.ticket_price)}. Pick ${lottery.pick_count} numbers 1-${lottery.max_number}. Jackpot ${money(lottery.jackpot)}.`);
+    if (sub === 'info') return ok(`${lottery.name}. Ticket ${money(lottery.ticket_price)}. Pick ${lottery.pick_count} numbers 1-${lottery.max_number}. Jackpot ${money(lottery.jackpot)}.`, { lottery });
     if (sub === 'my-tickets') {
       const mine = await repo.listLotteryTickets(lottery.id, user.id);
-      if (!mine.length) return ok('No tickets. The house prefers it that way.');
-      return ok(mine.map(row => row.numbers.join(', ')).join('\n'));
+      if (!mine.length) return ok('No tickets. The house prefers it that way.', { lottery, tickets: [] });
+      return ok(mine.map(row => row.numbers.join(', ')).join('\n'), { lottery, tickets: mine });
     }
     if (sub === 'buy') {
       const numbers = (body.numbers || []).map(Number);
@@ -1000,7 +1105,7 @@ const actions = {
         }
         return ok(`Drawn. Winning numbers ${winning.join(', ')}. Not you. Jackpot remains theoretically conceptual.`);
       }
-      return ok(`Ticket purchased: ${numbers.join(', ')}. Jackpot ${money(lottery.jackpot)}. May the odds be ever in Kevin's favor.`);
+      return ok(`Ticket purchased: ${numbers.join(', ')}. Jackpot ${money(lottery.jackpot)}. May the odds be ever in Kevin's favor.`, { lottery, numbers, balance: account.balance });
     }
     return fail('usage', 'Buy a ticket, check yours, or stare at the jackpot.');
   },
@@ -1045,6 +1150,121 @@ function parseBody(action, body) {
     if (!body.numbers) body.numbers = numberParts.map(Number).filter(n => !Number.isNaN(n));
   }
   return body;
+}
+
+export function findCombo(a, b) {
+  return COMBOS[comboKey(a, b)] || null;
+}
+
+export function banStatus(account) {
+  if (!account?.is_banned) return { banned: false };
+  if (account.ban_expiry && now() > account.ban_expiry) return { banned: false, expired: true };
+  return { banned: true, reason: account.ban_reason || null, expiry: account.ban_expiry || null };
+}
+
+export async function warnUser(repo, userId, reason) {
+  const account = await repo.getAccount(userId);
+  if (!account) return fail('no_account', 'No account to warn.');
+  const strikes = (account.strikes || 0) + 1;
+  await repo.updateAccount(userId, { strikes });
+  await repo.addTxn({ user_id: userId, amount: 0, kind: 'fee', description: `Warning issued (strike ${strikes}): ${reason || 'No reason provided'}`, created_at: now() });
+  return ok(`Strike ${strikes} recorded.`, { strikes });
+}
+
+export async function banUser(repo, userId, { reason, expiry } = {}) {
+  const account = await repo.getAccount(userId);
+  if (!account) return fail('no_account', 'No account to ban.');
+  await repo.updateAccount(userId, { is_banned: 1, ban_reason: reason || null, ban_expiry: expiry || null });
+  return ok('Banned. Kevin signed it.');
+}
+
+export async function unbanUser(repo, userId) {
+  const account = await repo.getAccount(userId);
+  if (!account) return fail('no_account', 'No account to unban.');
+  await repo.updateAccount(userId, { is_banned: 0, ban_reason: null, ban_expiry: null });
+  return ok('Unbanned. Provisionally.');
+}
+
+export async function createLottery(repo, { name, ticketPrice, maxNumber, pickCount, jackpot, createdBy }) {
+  const open = await repo.getOpenLottery();
+  if (open) {
+    const sold = await repo.listLotteryTickets(open.id);
+    if (sold.length) return fail('lottery_open', `${open.name} is still open with ${sold.length} ticket(s). Draw or cancel it first.`);
+    await repo.upsertLottery({ ...open, status: 'cancelled' });
+  }
+  if (!name || !(ticketPrice > 0) || !(maxNumber >= 2) || !(pickCount >= 1) || pickCount > maxNumber || !(jackpot >= 0)) {
+    return fail('usage', 'Lottery needs a name, a positive ticket price, a max number, a pick count, and a jackpot.');
+  }
+  await repo.upsertLottery({ name: String(name).slice(0, 80), ticket_price: ticketPrice, max_number: maxNumber, pick_count: pickCount, jackpot, status: 'open', created_at: now(), created_by: createdBy || null });
+  const lottery = await repo.getOpenLottery();
+  return ok(`Lottery ${lottery.name} is open.`, { lottery });
+}
+
+export async function drawLottery(repo) {
+  const lottery = await repo.getOpenLottery();
+  if (!lottery) return fail('no_lottery', 'No open lottery to draw.');
+  const winning = [];
+  while (winning.length < lottery.pick_count) {
+    const n = Math.floor(Math.random() * lottery.max_number) + 1;
+    if (!winning.includes(n)) winning.push(n);
+  }
+  const tickets = await repo.listLotteryTickets(lottery.id);
+  lottery.status = 'drawn';
+  lottery.winning_numbers = JSON.stringify(winning);
+  lottery.drawn_at = now();
+  if (!tickets.length) {
+    await repo.upsertLottery(lottery);
+    return ok(`Drawn: ${winning.join(', ')}. Nobody bought a ticket. Kevin keeps the jackpot.`, { lottery, winning, winner: null, matchCount: 0, totalTickets: 0 });
+  }
+  const scored = tickets.map(ticket => ({ ticket, matches: ticket.numbers.filter(n => winning.includes(n)).length }));
+  const best = Math.max(...scored.map(row => row.matches));
+  const winner = pick(scored.filter(row => row.matches === best)).ticket;
+  lottery.winner_id = winner.user_id;
+  await repo.upsertLottery(lottery);
+  const [account] = await needAccount(repo, winner.user_id);
+  if (account) await credit(repo, account, lottery.jackpot, 'deposit', `Lottery winner: ${lottery.name}`);
+  return ok(`Drawn: ${winning.join(', ')}. Winner matched ${best}/${winning.length}.`,
+    { lottery, winning, winner: await repo.getUser(winner.user_id), matchCount: best, totalTickets: tickets.length, jackpot: lottery.jackpot });
+}
+
+export async function cancelLottery(repo) {
+  const lottery = await repo.getOpenLottery();
+  if (!lottery) return fail('no_lottery', 'No open lottery to cancel.');
+  const tickets = await repo.listLotteryTickets(lottery.id);
+  for (const ticket of tickets) {
+    const [account] = await needAccount(repo, ticket.user_id);
+    if (account) await credit(repo, account, lottery.ticket_price, 'deposit', `Lottery refund: ${lottery.name}`);
+  }
+  await repo.upsertLottery({ ...lottery, status: 'cancelled' });
+  return ok(`${lottery.name} cancelled. ${tickets.length} ticket(s) refunded.`, { lottery, refunded: tickets.length });
+}
+
+export function slackUserId(slackUserId) {
+  return SLACK_USER_PREFIX + slackUserId;
+}
+
+export function isShadowUser(userId) {
+  return String(userId || '').startsWith(SLACK_USER_PREFIX);
+}
+
+// Slack customers get a shadow user until they link on the web. Returns null when
+// they have no account yet and `create` is false (unless the old bot remembers them).
+export async function resolveSlackUser(repo, slackId, { create = false, name = null } = {}) {
+  if (!slackId) return null;
+  const existing = await repo.getUserBySlackId(slackId);
+  if (existing) return { user: existing, created: false, imported: false };
+  const hasLegacy = await repo.hasSlackLegacy(slackId);
+  if (!create && !hasLegacy) return null;
+  const id = slackUserId(slackId);
+  const balance = pick(OPENING_BALANCES);
+  const user = await repo.createSlackUser({ id, slack_user_id: slackId, name, balance });
+  if (hasLegacy && await repo.importSlackLegacy(id, slackId)) {
+    return { user: await repo.getUser(id), created: true, imported: true };
+  }
+  await repo.addTxn({ user_id: id, amount: balance, kind: 'deposit', description: 'Welcome bonus (we were feeling generous)', created_at: now() });
+  const [account] = await needAccount(repo, id);
+  await charge(repo, account, 1, 'fee', 'Account opening fee');
+  return { user, created: true, imported: false };
 }
 
 export async function handleEconomy(repo, user, body = {}) {
