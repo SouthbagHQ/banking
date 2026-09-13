@@ -30,6 +30,7 @@
         </a>
       </p>
       <p id="slackHelp"></p>
+      <p id="slackBot"></p>
     </article>
   </section>
 
@@ -75,11 +76,14 @@
         help.textContent = 'Create a Slack app, enable Sign in with Slack, and add the redirect URL /auth/slack/callback.';
         return;
       }
+      document.getElementById('slackBot').textContent = status.bot
+        ? 'The Southbag Support bot is live in Slack. Everything you do there with /south-commands moves the same money as this page once you link.'
+        : 'The Southbag Support bot is not running on this deploy. Slack customers are on their own. As usual.';
       if (status.linked) {
         statusEl.textContent = 'Linked to Slack user ' + status.slackUserId + (status.slackName ? ' (' + status.slackName + ')' : '') + '.';
         linkedEl.textContent = status.imported
-          ? 'Legacy Slack-bot data was imported over this account.'
-          : 'Linked, with no matching Slack-bot dump. Your web data stayed.';
+          ? 'Slack-bot data (the old dump or your shadow account) was imported over this account.'
+          : 'Linked, with no matching Slack-bot data. Your web data stayed.';
         button.hidden = true;
       } else {
         statusEl.textContent = 'Not linked. Your current web account will be overwritten if Slack remembers you.';
