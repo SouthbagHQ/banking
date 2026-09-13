@@ -2,12 +2,12 @@ const PROVIDERS = {
   hcai: {
     url: 'https://ai.hackclub.com/proxy/v1/chat/completions',
     key: env => env.HCAI,
-    model: env => env.HCAI_MODEL || 'google/gemini-3-flash-preview',
+    model: env => env.HCAI_MODEL || 'google/gemini-3.8-flash',
   },
   openrouter: {
     url: 'https://openrouter.ai/api/v1/chat/completions',
     key: env => env.OPENROUTER_API_KEY,
-    model: env => env.OPENROUTER_MODEL || 'google/gemini-3-flash-preview',
+    model: env => env.OPENROUTER_MODEL || 'google/gemini-3.8-flash',
     headers: { 'HTTP-Referer': 'https://banking.southbag.cc', 'X-Title': 'Southbag Online Banking' },
   },
 };

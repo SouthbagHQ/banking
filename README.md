@@ -71,7 +71,7 @@ npx wrangler secret put SLACK_ALLOWED_CHANNEL  # optional, channel id the bot an
 npx wrangler secret put SLACK_LINK_URL         # optional, where unlinked users are sent (defaults to https://southbag.cc/onboarding?flow=slack-banking)
 ```
 
-   Models default to `google/gemini-3-flash-preview` on both; override with `HCAI_MODEL` / `OPENROUTER_MODEL`. The web chat at `/api/chat` uses the same provider chain.
+   Models default to `google/gemini-3.8-flash` on both; override with `HCAI_MODEL` / `OPENROUTER_MODEL`. The web chat at `/api/chat` uses the same provider chain.
 
    For local dev add the same keys to `.dev.vars` and expose `wrangler dev` with `npx cloudflared tunnel --url http://localhost:8787`, then point the Slack Request URLs at the tunnel.
 
