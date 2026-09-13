@@ -8,6 +8,9 @@ import {
   slackConfigured,
   slackUserIdFromProfile,
 } from './slack-link.js';
+import { handleSlackRequest, slackBotConfigured } from './slack-bot.js';
+
+const slackBotPaths = new Set(['/slack/events', '/slack/commands', '/slack/interactive']);
 
 const issuer = 'https://identity.southbag.cc';
 const oauth = {
@@ -236,6 +239,7 @@ function slackRedirect(origin, params, clearState = true) {
 function slackSummary(env, user) {
   return {
     configured: slackConfigured(env),
+    bot: slackBotConfigured(env),
     linked: Boolean(user?.slack_user_id),
     slackUserId: user?.slack_user_id || null,
     slackName: user?.slack_name || null,
@@ -306,9 +310,11 @@ async function slackCallback(request, env) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     try {
       const url = new URL(request.url);
+      // Slack Events API, slash commands and interactivity all point here (signature-verified, no session).
+      if (slackBotPaths.has(url.pathname)) return await handleSlackRequest(request, env, ctx);
       if (url.pathname === '/auth/login') return await login(request, env);
       if (url.pathname === '/auth/callback') return await callback(request, env);
       if (url.pathname === '/auth/slack/callback') return await slackCallback(request, env);
@@ -326,7 +332,7 @@ export default {
       if (url.pathname === '/api/session') {
         return json(user
           ? { authenticated: true, user: { id: user.id, email: user.email, name: user.name, picture: user.picture }, slack: slackSummary(env, user) }
-          : { authenticated: false, slack: { configured: slackConfigured(env), linked: false } });
+          : { authenticated: false, slack: { configured: slackConfigured(env), bot: slackBotConfigured(env), linked: false } });
       }
       if (url.pathname === '/api/slack') {
         if (!user) return json({ error: 'Authentication required' }, 401);

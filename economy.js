@@ -266,7 +266,7 @@ export function createMemoryRepo() {
     },
     async addTxn(row) { transactions.push({ id: id(), ...row }); },
     async listTxns(userId, limit) {
-      return transactions.filter(row => row.user_id === userId).sort((a, b) => b.created_at - a.created_at).slice(0, limit);
+      return transactions.filter(row => row.user_id === userId).sort((a, b) => b.created_at - a.created_at || b.id - a.id).slice(0, limit);
     },
     async getJob(userId) { return jobs.get(userId) || null; },
     async upsertJob(job) { jobs.set(job.user_id, { ...job }); },
@@ -389,7 +389,7 @@ export function createD1Repo(db) {
         row.user_id, row.amount, row.kind, row.description, row.created_at);
     },
     async listTxns(userId, limit) {
-      return all('SELECT id, amount, kind, description, created_at FROM transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT ?', userId, limit);
+      return all('SELECT id, amount, kind, description, created_at FROM transactions WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?', userId, limit);
     },
     async getJob(userId) { return one('SELECT user_id, title, salary, hired_at, last_worked_at FROM jobs WHERE user_id = ?', userId); },
     async upsertJob(job) {
