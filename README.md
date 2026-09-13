@@ -67,6 +67,7 @@ npx wrangler secret put SLACK_SIGNING_SECRET
 npx wrangler secret put HCAI               # AI replies for support chat, combine, use, warnings
 npx wrangler secret put SLACK_ADMIN_IDS    # optional, comma-separated Slack user ids that see the admin panel
 npx wrangler secret put SLACK_ALLOWED_CHANNEL  # optional, channel id the bot answers in (defaults to the old #southbag channel)
+npx wrangler secret put SLACK_LINK_URL         # optional, where unlinked users are sent (defaults to https://southbag.cc/onboarding?flow=slack-banking)
 ```
 
    For local dev add the same keys to `.dev.vars` and expose `wrangler dev` with `npx cloudflared tunnel --url http://localhost:8787`, then point the Slack Request URLs at the tunnel.
@@ -78,6 +79,7 @@ npx wrangler secret put SLACK_ALLOWED_CHANNEL  # optional, channel id the bot an
 - A Slack user who has linked on the web (**Link Slack** page) uses their real account. Slack commands and the website move the same money.
 - Everyone else plays as a shadow customer (`slack:U…`). `/south-open-account` creates one with a pathetic starting balance; if the old bot's Convex dump knows the Slack user, their old balance, jobs, loans, inventory and fees are imported automatically the first time they run a command.
 - When a shadow customer later links on the web, the shadow account is merged into their web account (balance, transactions, jobs, loans, insurance, crypto, investments, lottery tickets, heists). The web account's previous data is overwritten, as before.
+- Anyone who is not linked is nudged on every action — slash command responses, shop/modal replies, App Home, and the first message of each support thread — to sign up at `https://southbag.cc/onboarding?flow=slack-banking` and link Slack. Linked customers never see it.
 - Ban/warn/admin state lives on `accounts` (`is_admin`, `is_banned`, `ban_expiry`, `ban_reason`, `strikes`). `SLACK_ADMIN_IDS` also grants the admin panel.
 
 ### What the bot does

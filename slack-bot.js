@@ -18,6 +18,7 @@ import { executeCommands, parseCommands } from './slack-commands.js';
 import { KEVIN_PROMPT, KEVIN_TRIGGER_REGEX, kevinLetterPrompt, SYSTEM_PROMPT } from './slack-prompt.js';
 
 const DEFAULT_ALLOWED_CHANNEL = 'C0AH7GB4V6X';
+const DEFAULT_LINK_URL = 'https://southbag.cc/onboarding?flow=slack-banking';
 const SUPPORTED_IMAGE_MIMES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp']);
 const SLACK_IMAGE_URL_FIELDS = ['thumb_1024', 'thumb_960', 'thumb_720', 'thumb_480', 'url_private_download', 'url_private'];
 const MENTION = /<@([A-Z0-9]+)(?:\|[^>]*)?>/g;
@@ -200,6 +201,7 @@ export function createBot(env, { repo, slack, waitUntil } = {}) {
     repo: repo || createD1Repo(env.DB),
     slack: slack || createSlackClient(env.SLACK_BOT_TOKEN),
     allowedChannel: env.SLACK_ALLOWED_CHANNEL || DEFAULT_ALLOWED_CHANNEL,
+    linkUrl: env.SLACK_LINK_URL || DEFAULT_LINK_URL,
     admins: String(env.SLACK_ADMIN_IDS || '').split(',').map(id => id.trim()).filter(Boolean),
     waitUntil: waitUntil || (promise => promise),
     botUserId: null,
@@ -284,6 +286,28 @@ async function mentionedUsers(bot, text) {
   return users;
 }
 
+// Shadow users (never linked on the web) get told to sign up and link on every action.
+function isLinked(user) {
+  return Boolean(user) && !user.id.startsWith('slack:');
+}
+
+function linkNudge(bot, user) {
+  if (isLinked(user)) return null;
+  const verb = user ? 'link this Slack account' : 'open your account';
+  return `_Your Slack account is not linked to Southbag Online Banking. <${bot.linkUrl}|Sign up on the web> and ${verb} so your money, fees and regrets live in one place._`;
+}
+
+function linkButton(bot) {
+  return { type: 'button', text: plain('Sign up & link Slack'), url: bot.linkUrl, action_id: 'link_web_account' };
+}
+
+function withNudge(payload, nudge) {
+  if (!nudge) return payload;
+  const next = { ...payload, text: [payload.text, nudge].filter(Boolean).join('\n\n') };
+  if (payload.blocks) next.blocks = [...payload.blocks, context(nudge)].slice(0, 50);
+  return next;
+}
+
 // Run an economy action and DM anyone whose balance moved (if they turned notifications on).
 async function runEconomy(bot, user, body, { watch = [], description } = {}) {
   const watched = [user, ...watch].filter((item, index, list) => item && list.findIndex(other => other.id === item.id) === index);
@@ -313,10 +337,12 @@ async function announce(bot, payload) {
 }
 
 async function whisper(bot, slackId, payload) {
+  const resolved = await resolveSlackUser(bot.repo, slackId).catch(() => null);
+  const message = withNudge(payload, linkNudge(bot, resolved?.user || null));
   try {
-    await bot.slack.postEphemeral({ channel: slackId, user: slackId, ...payload });
+    await bot.slack.postEphemeral({ channel: slackId, user: slackId, ...message });
   } catch {
-    try { await bot.slack.postMessage({ channel: slackId, ...payload }); } catch {}
+    try { await bot.slack.postMessage({ channel: slackId, ...message }); } catch {}
   }
 }
 
@@ -325,13 +351,15 @@ export async function handleSlashCommand(bot, command) {
   const action = String(command.command || '').replace(/^\/south-/, '').toLowerCase();
   const slackId = command.user_id;
   const text = String(command.text || '').trim();
-  const respond = payload => bot.slack.respond(command.response_url, payload);
+  let nudge = linkNudge(bot, null);
+  const respond = payload => bot.slack.respond(command.response_url, withNudge(payload, nudge));
 
   const banned = await bannedMessage(bot, slackId);
   if (banned) return respond({ response_type: 'ephemeral', text: banned });
 
   if (action === 'open-account') {
     const resolved = await resolveSlackUser(bot.repo, slackId, { create: true, name: text || command.user_name || null });
+    nudge = linkNudge(bot, resolved.user);
     const result = await runEconomy(bot, resolved.user, { action: 'open-account' });
     const account = result.account;
     const intro = resolved.imported
@@ -350,6 +378,9 @@ export async function handleSlashCommand(bot, command) {
     });
   }
 
+  const known = await resolveSlackUser(bot.repo, slackId, { name: command.user_name || null });
+  nudge = linkNudge(bot, known?.user || null);
+
   if (action === 'leaderboard') {
     const result = await handleEconomy(bot.repo, { id: 'slack:' + slackId }, { action: 'leaderboard', sub: text.toLowerCase() });
     if (!result.ok || !result.rows?.length) return respond({ response_type: 'ephemeral', text: result.text });
@@ -363,11 +394,10 @@ export async function handleSlashCommand(bot, command) {
     });
   }
 
-  const resolved = await resolveSlackUser(bot.repo, slackId, { name: command.user_name || null });
-  if (!resolved) {
-    return respond({ response_type: 'ephemeral', text: "You don't have an account. Use `/south-open-account` to open one. We'll make it worth your while. (We won't.)" });
+  if (!known) {
+    return respond({ response_type: 'ephemeral', text: `You don't have an account. <${bot.linkUrl}|Sign up on the web> and link Slack, or use \`/south-open-account\` for a temporary one. We'll make it worth your while. (We won't.)` });
   }
-  const user = resolved.user;
+  const user = known.user;
 
   if (action === 'deposit') {
     if (!(await isAdmin(bot, slackId))) return respond({ response_type: 'ephemeral', text: "You don't have permission to deposit. Nice try." });
@@ -893,6 +923,15 @@ export async function publishHome(bot, slackId) {
   const resolved = await resolveSlackUser(bot.repo, slackId);
   const overview = resolved ? await handleEconomy(bot.repo, resolved.user, { action: 'overview' }) : { ok: false };
   let blocks = [];
+  if (!isLinked(resolved?.user)) {
+    blocks.push({
+      type: 'section',
+      text: mrkdwn(resolved
+        ? '*Your Slack account is not linked to Southbag Online Banking.* Sign up on the web and link Slack to keep this balance, your inventory and every fee in one account.'
+        : '*You are not a Southbag customer yet.* Sign up on the web and link Slack. Or use `/south-open-account` for a temporary account Kevin will judge you for.'),
+      accessory: linkButton(bot),
+    }, divider());
+  }
   if (await isAdmin(bot, slackId)) {
     const lottery = overview.lottery || (await bot.repo.getOpenLottery());
     blocks = adminBlocks(lottery);
@@ -1216,6 +1255,9 @@ export async function handleMessage(bot, event) {
       await say({ text: kevinTriggered ? '_*The Southbag Support agent has been temporarily replaced. Kevin was already reading.*_' : '_*The Southbag Support agent has been temporarily replaced.*_', thread_ts: threadTs });
     }
     if (cleanText) await say({ text: cleanText, thread_ts: threadTs });
+    if (history.length <= 1 && !isLinked(user)) {
+      try { await bot.slack.postEphemeral({ channel: channelId, user: slackId, thread_ts: threadTs, text: linkNudge(bot, user) }); } catch {}
+    }
     await executeCommands(commands, {
       say, slack: bot.slack, event, repo: bot.repo, user,
       notifyBalanceChange: (target, description, amount, balance) => notifyBalanceChange(bot, target, description, amount, balance),

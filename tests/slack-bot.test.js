@@ -290,3 +290,47 @@ test('web economy still works for linked users', async () => {
   const result = await handleEconomy(repo, found.user, { command: '/south-balance' });
   assert.equal(result.ok, true);
 });
+
+test('unlinked Slack users are told to sign up and link on the web', async () => {
+  const { bot, repo, slack } = makeBot();
+  const url = 'https://southbag.cc/onboarding?flow=slack-banking';
+  await handleSlashCommand(bot, command('/south-balance'));
+  assert.match(slack.find('respond').at(-1).payload.text, new RegExp(url.replace(/[?]/g, '\\?')));
+
+  await openAccount(bot, 'U1');
+  await handleSlashCommand(bot, command('/south-balance'));
+  const reply = slack.find('respond').at(-1).payload;
+  assert.match(reply.text, /not linked/);
+  assert.equal(reply.blocks.at(-1).type, 'context');
+  assert.match(reply.blocks.at(-1).elements[0].text, /link this Slack account/);
+
+  await publishHome(bot, 'U1');
+  const home = slack.find('views.publish').at(-1).payload.view;
+  assert.equal(home.blocks[0].accessory.url, url);
+
+  repo.seedUser({ id: 'oidc-1', email: 'a@southbag.cc', name: 'Web Person', slack_user_id: 'U7' });
+  await repo.updateAccount('oidc-1', { balance: 5000, status: 'active', inventory: [], updated_at: Date.now() });
+  await handleSlashCommand(bot, command('/south-balance', '', 'U7'));
+  const linked = slack.find('respond').at(-1).payload;
+  assert.doesNotMatch(linked.text, /not linked/);
+  assert.equal(linked.blocks.at(-1).elements[0].text, '_Your balance was charged for checking your balance, and then charged again for knowing about it. Classic._');
+  await publishHome(bot, 'U7');
+  assert.doesNotMatch(JSON.stringify(slack.find('views.publish').at(-1).payload.view.blocks), /link_web_account/);
+});
+
+test('support chat nudges unlinked users once per thread', async () => {
+  const { bot, slack } = makeBot({ HCAI: 'key' });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ choices: [{ message: { content: 'No.' } }] }), { status: 200 });
+  try {
+    await openAccount(bot, 'U1');
+    const event = ts => ({ type: 'event_callback', event_id: 'E' + ts, event: { type: 'app_mention', channel: 'CLOBBY', user: 'U1', ts, thread_ts: '9.0', text: '<@UBOT> hi' } });
+    await handleEvent(bot, event('9.0'));
+    await handleEvent(bot, event('9.1'));
+    const nudges = slack.find('chat.postEphemeral').filter(call => /Sign up on the web/.test(call.payload.text));
+    assert.equal(nudges.length, 1);
+    assert.equal(nudges[0].payload.thread_ts, '9.0');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
