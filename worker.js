@@ -9,6 +9,7 @@ import {
   slackUserIdFromProfile,
 } from './slack-link.js';
 import { handleSlackRequest, slackBotConfigured } from './slack-bot.js';
+import { aiConfigured, chat } from './ai.js';
 
 const slackBotPaths = new Set(['/slack/events', '/slack/commands', '/slack/interactive']);
 
@@ -213,13 +214,14 @@ async function chatApi(request, env, user) {
     return json({ ok: true });
   }
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
-  if (!env.HCAI) return json({ error: 'Chat is not configured' }, 503);
-  const response = await fetch('https://ai.hackclub.com/proxy/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${env.HCAI}` },
-    body: JSON.stringify({ model: 'google/gemini-3-flash-preview', messages: body.messages }),
-  });
-  return new Response(response.body, { status: response.status, headers: { 'content-type': 'application/json' } });
+  if (!aiConfigured(env)) return json({ error: 'Chat is not configured' }, 503);
+  try {
+    const content = await chat(body.messages, env);
+    return json({ choices: [{ message: { role: 'assistant', content } }] });
+  } catch (error) {
+    console.error(error);
+    return json({ error: 'Every AI we know refused to talk to you.' }, 502);
+  }
 }
 
 async function economyApi(request, env, user) {
