@@ -144,3 +144,38 @@ test('overwriteStatements copies every per-user Slack table', () => {
     assert.match(sql, new RegExp('DELETE FROM ' + table));
   }
 });
+
+test('linkSlackAccount merges a shadow user created by the Slack bot', async () => {
+  const db = fakeDb({
+    users: [
+      { id: 'oidc-user', slack_user_id: null, slack_imported: 0 },
+      { id: 'slack:U0BOT', slack_user_id: 'U0BOT', slack_imported: 0 },
+    ],
+    heists: [{ id: 1, started_by: 'slack:U0BOT', participants: '["slack:U0BOT","U079QLTJZ7H"]' }],
+  });
+  const result = await linkSlackAccount(db, { userId: 'oidc-user', slackUserId: 'U0BOT', slackName: 'hostage' });
+  assert.deepEqual(result, { ok: true, imported: true, merged: true, alreadyLinked: false });
+  const sqls = db.runs.map(run => run.sql);
+  assert.ok(sqls.some(sql => sql.includes('UPDATE accounts SET (balance')), 'copies the shadow account onto the real one');
+  assert.ok(sqls.some(sql => sql.includes('UPDATE transactions SET user_id = ?')), 'moves transactions');
+  assert.ok(sqls.some(sql => sql.includes('UPDATE lottery_tickets SET user_id = ?')), 'moves lottery tickets');
+  const deleteUser = db.runs.find(run => run.sql === 'DELETE FROM users WHERE id = ?');
+  assert.deepEqual(deleteUser.args, ['slack:U0BOT']);
+  const link = db.runs.find(run => run.sql.includes('UPDATE users SET slack_user_id'));
+  assert.ok(db.runs.indexOf(deleteUser) < db.runs.indexOf(link), 'shadow row goes before the unique slack id moves');
+  assert.equal(link.args[0], 'U0BOT');
+  const heistUpdate = db.runs.find(run => run.sql.includes('UPDATE heists'));
+  assert.deepEqual(heistUpdate.args, ['oidc-user', '["oidc-user","U079QLTJZ7H"]', 1]);
+});
+
+test('linkSlackAccount refuses to merge a shadow onto an account linked elsewhere', async () => {
+  const db = fakeDb({
+    users: [
+      { id: 'oidc-user', slack_user_id: 'UOTHER', slack_imported: 1 },
+      { id: 'slack:U0BOT', slack_user_id: 'U0BOT', slack_imported: 0 },
+    ],
+  });
+  const result = await linkSlackAccount(db, { userId: 'oidc-user', slackUserId: 'U0BOT', slackName: 'hostage' });
+  assert.deepEqual(result, { ok: false, error: 'already_linked', imported: false });
+  assert.equal(db.runs.length, 0);
+});
