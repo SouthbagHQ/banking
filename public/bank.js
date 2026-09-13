@@ -37,7 +37,7 @@ async function transact(amount, kind, description) {
 
 async function viewBalance() {
   await loadAccount();
-  alert('Your database balance: ' + money(account.balance));
+  alert('Your balance: ' + money(account.balance));
 }
 
 async function transferMoney() {

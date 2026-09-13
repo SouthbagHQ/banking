@@ -60,7 +60,7 @@ async function southRefresh() {
     : 'Unemployed. We are hiring because everyone quits.');
   setText('southLoan', data.loan
     ? `Active loan. Principal ${southMoney(data.loan.principal)}. Owed about ${southMoney(data.loan.owed)}. ${(data.loan.interest_rate * 100).toFixed(0)}% per hour.`
-    : 'No active loan. Maximum $10. Interest is criminal.');
+    : 'No active loan');
   setText('southInsurance', data.insurance
     ? `Plan ${data.insurance.plan}. Covered until ${new Date(data.insurance.covered_until).toLocaleString()}. Claims still denied.`
     : 'Uninsured. Not that insurance would help.');
