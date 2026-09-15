@@ -46,6 +46,25 @@ const base64url = value => {
   return btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
 };
 const hash = async value => base64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
+
+// Origins allowed to call /api/* cross-origin with an Identity bearer token: Southbag Mobile's
+// UI on GitHub Pages (the Android WebView loads it from there) and `cordova run browser`.
+const apiOrigins = new Set(['https://southbaghq.github.io', 'http://localhost:8000']);
+// Bearer-authenticated callers get a short-lived banking session so we only ask Identity once
+// per token every few minutes instead of on every request.
+const bearerSessionMs = 10 * 60 * 1000;
+const corsHeaders = request => {
+  const origin = request.headers.get('origin');
+  if (!apiOrigins.has(origin)) return {};
+  return {
+    'access-control-allow-origin': origin,
+    'access-control-allow-methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+    'access-control-allow-headers': request.headers.get('access-control-request-headers') || 'authorization, content-type',
+    'access-control-max-age': '86400',
+    vary: 'origin',
+  };
+};
+const bearerToken = request => request.headers.get('authorization')?.match(/^Bearer (.+)$/i)?.[1];
 // Only same-origin paths may be used as a post-login destination; anything else falls back to the dashboard.
 const safeReturnTo = value => (typeof value === 'string' && /^\/(?![\/\\])/.test(value) ? value : null);
 const readReturnTo = request => {
@@ -146,6 +165,17 @@ async function callback(request, env) {
   if (!userResponse.ok || !user.sub) return json({ error: 'Could not load identity profile' }, 502);
 
   const now = Date.now();
+  await openAccount(env, user, now);
+  const token = random();
+  await env.DB.prepare('INSERT INTO sessions VALUES (?, ?, ?, ?)')
+    .bind(await hash(token), user.sub, now + 7 * 86400000, now).run();
+  const returnTo = readReturnTo(request) || dashboardPath;
+  return redirect(pending.origin + returnTo, cookie(sessionCookie, token, 7 * 86400),
+    cookie(stateCookie, '', 0), cookie(returnToCookie, '', 0));
+}
+
+// Upserts the Identity profile and opens a banking account for it if there is none yet.
+async function openAccount(env, user, now = Date.now()) {
   const number = [
     Math.floor(Math.random() * 9000 + 1000),
     'SBAG',
@@ -161,18 +191,33 @@ async function callback(request, env) {
       (user_id, balance, updated_at, account_number, status, inventory) VALUES (?, 1000000, ?, ?, 'active', '[]')`)
       .bind(user.sub, now, number),
   ]);
-  const token = random();
-  await env.DB.prepare('INSERT INTO sessions VALUES (?, ?, ?, ?)')
-    .bind(await hash(token), user.sub, now + 7 * 86400000, now).run();
-  const returnTo = readReturnTo(request) || dashboardPath;
-  return redirect(pending.origin + returnTo, cookie(sessionCookie, token, 7 * 86400),
-    cookie(stateCookie, '', 0), cookie(returnToCookie, '', 0));
 }
 
+// The website sends the banking session cookie. Southbag Mobile has no cookie: it sends the
+// Identity access token it obtained itself (OAuth code + PKCE) as a bearer token, and we ask
+// Identity who that is. The answer is cached as a short-lived session keyed by the token hash.
 async function session(request, env) {
-  const token = getCookie(request, sessionCookie);
-  if (!token) return null;
-  const tokenHash = await hash(token);
+  const cookieToken = getCookie(request, sessionCookie);
+  if (cookieToken) return loadSession(env, await hash(cookieToken));
+
+  const bearer = bearerToken(request);
+  if (!bearer) return null;
+  const tokenHash = await hash(bearer);
+  const cached = await loadSession(env, tokenHash);
+  if (cached) return { ...cached, bearer: true };
+
+  const userResponse = await fetch(oauth.userinfo, { headers: { authorization: `Bearer ${bearer}` } });
+  const user = await userResponse.json().catch(() => ({}));
+  if (!userResponse.ok || !user.sub) return null;
+  const now = Date.now();
+  await openAccount(env, user, now);
+  await env.DB.prepare('INSERT OR REPLACE INTO sessions VALUES (?, ?, ?, ?)')
+    .bind(tokenHash, user.sub, now + bearerSessionMs, now).run();
+  const value = await loadSession(env, tokenHash);
+  return value ? { ...value, bearer: true } : null;
+}
+
+async function loadSession(env, tokenHash) {
   const value = await env.DB.prepare(`SELECT users.id, users.email, users.name, users.picture,
     users.slack_user_id, users.slack_name, users.slack_linked_at, users.slack_imported,
     accounts.balance, sessions.expires_at FROM sessions JOIN users ON users.id = sessions.user_id
@@ -323,7 +368,7 @@ async function slackCallback(request, env) {
   }
 }
 
-export default {
+const app = {
   async fetch(request, env, ctx) {
     try {
       const url = new URL(request.url);
@@ -368,7 +413,9 @@ export default {
       if (url.pathname === '/secureportal.html') return redirect(url.origin + dashboardPath);
       if (url.pathname.startsWith('/api/')) {
         if (!user) return json({ error: 'Authentication required' }, 401);
-        if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method) && request.headers.get('origin') !== url.origin)
+        // Cookie sessions need the same-origin check against CSRF; a bearer token is proof by itself.
+        if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method) && !user.bearer
+          && request.headers.get('origin') !== url.origin)
           return json({ error: 'Invalid origin' }, 403);
         if (url.pathname === '/api/account') return await accountApi(request, env, user);
         if (url.pathname === '/api/chat') return await chatApi(request, env, user);
@@ -380,5 +427,17 @@ export default {
       console.error(error);
       return json({ error: error.message || 'Internal server error' }, 500);
     }
+  },
+};
+
+export default {
+  // /api/* answers CORS for Southbag Mobile; everything else is served as before.
+  async fetch(request, env, ctx) {
+    if (!new URL(request.url).pathname.startsWith('/api/')) return app.fetch(request, env, ctx);
+    const cors = corsHeaders(request);
+    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
+    const response = await app.fetch(request, env, ctx);
+    for (const [key, value] of Object.entries(cors)) response.headers.set(key, value);
+    return response;
   },
 };
