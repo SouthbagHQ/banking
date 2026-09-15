@@ -22,6 +22,10 @@ The first login dynamically registers an OAuth client for the current origin and
 
 `GET /auth/onboard` is where `southbag.cc/onboarding` sends a freshly registered customer: the onboarding form signs up against Identity directly, which leaves a session cookie on `.southbag.cc`, so the Identity login hop here completes without another prompt (Identity skips consent for first-party redirect URIs), the callback opens the banking account, and the customer lands on the dashboard already signed in.
 
+## Southbag Mobile
+
+The mobile app has no backend of its own. It signs in against Identity directly (OAuth authorization code + PKCE, public client) and calls `/api/account`, `/api/chat` and `/api/economy` here with the Identity access token as `Authorization: Bearer …`. `session()` accepts that alongside the website's cookie: the first request with a new token is checked with Identity's userinfo endpoint (opening the banking account if there is none), then cached as a 10‑minute session keyed by the token hash. `/api/*` answers CORS for the app's origins (`apiOrigins` in `worker.js`); bearer requests skip the same-origin check that cookie sessions need.
+
 ## Slack account linking
 
 1. Create (or reuse) a Slack app at [api.slack.com/apps](https://api.slack.com/apps).
