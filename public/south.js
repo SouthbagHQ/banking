@@ -57,25 +57,25 @@ async function southRefresh() {
   setText('southAccountMeta', 'Notifications: ' + (data.account.notifications ? 'on, so we can brag about fees' : 'off, fees continue silently'));
   setText('southJob', data.job
     ? `You work as ${data.job.title} for ${southMoney(data.job.salary)} a shift before tax.`
-    : 'Unemployed. We are hiring because everyone quits.');
+    : 'Unemployed');
   setText('southLoan', data.loan
     ? `Active loan. Principal ${southMoney(data.loan.principal)}. Owed about ${southMoney(data.loan.owed)}. ${(data.loan.interest_rate * 100).toFixed(0)}% per hour.`
     : 'No active loan');
   setText('southInsurance', data.insurance
     ? `Plan ${data.insurance.plan}. Covered until ${new Date(data.insurance.covered_until).toLocaleString()}. Claims still denied.`
-    : 'Uninsured. Not that insurance would help.');
+    : 'Uninsured');
   setText('southInvest', data.investment
     ? `Scheme running. Matures ${new Date(data.investment.matures_at).toLocaleString()}.`
     : 'No active scheme.');
   setText('southHeist', data.heist
     ? `Heist recruiting. Crew of ${data.heist.participants.length}. Fortune favors nobody.`
-    : 'No heist is recruiting. Start one and ruin a group of strangers.');
+    : 'No heist is recruiting.');
   setText('southLottery', data.lottery
     ? `${data.lottery.name}. Tickets ${southMoney(data.lottery.ticket_price)}. Jackpot ${southMoney(data.lottery.jackpot)}. Pick ${data.lottery.pick_count} numbers from 1-${data.lottery.max_number}.`
     : 'Kevin postponed the draw.');
   setText('southInventory', data.account.inventory.length
     ? data.account.inventory.map(item => item.name).join(', ')
-    : 'Nothing. Just like your prospects.');
+    : 'Nothing');
   setText('southCrypto', data.crypto.length
     ? data.crypto.map(row => `${row.amount.toFixed ? row.amount.toFixed(4) : row.amount} ${row.coin}`).join(' · ')
     : 'No coins. You are missing out on losing money faster.');

@@ -301,7 +301,7 @@ document.addEventListener('DOMContentLoaded', function() {
       recoveryEmailForm.addEventListener('submit', function(e) {
         e.preventDefault();
         expectedRecoveryCode = String(Math.floor(100000 + Math.random() * 900000));
-        recoveryStatus.textContent = 'Step 2: enter the code sent to ' + recoveryEmail.value + '. Static demo code: ' + expectedRecoveryCode;
+        recoveryStatus.textContent = 'Enter the code sent to ' + recoveryEmail.value + '. Static demo code: ' + expectedRecoveryCode;
         recoveryCodeForm.hidden = false;
         recoveryResetForm.hidden = true;
         if (recoveryCode) {
@@ -318,7 +318,7 @@ document.addEventListener('DOMContentLoaded', function() {
           recoveryStatus.textContent = 'That code was wrong. Southbag has narrowed the suspect list to you.';
           return;
         }
-        recoveryStatus.textContent = 'Step 3: code verified. Choose a new password that satisfies every rule.';
+        recoveryStatus.textContent = 'Code verified. Choose a new password.';
         recoveryResetForm.hidden = false;
         recoveryChecklist.isValid();
         if (recoveryNewPassword) recoveryNewPassword.focus();
@@ -429,7 +429,7 @@ document.addEventListener('DOMContentLoaded', function() {
           attachResetButton();
         }
       } else {
-        content.innerHTML = '<h1>Incorrect Password</h1><p>Access denied. Use the password saved in this browser.</p><a href="index.html" class="btn-small">Back to login</a>';
+        content.innerHTML = '<h1>Incorrect Password</h1><p>Access denied.</p><a href="index.html" class="btn-small">Back to login</a>';
         attachResetButton();
       }
     }

@@ -842,7 +842,7 @@ const actions = {
     const sub = String(body.sub || 'status').toLowerCase();
     if (sub === 'status') {
       const cover = await repo.getInsurance(user.id);
-      if (!cover) return ok('Uninsured. Not that insurance would help.');
+      if (!cover) return ok('Uninsured');
       return ok(`Plan ${cover.plan}. Covered until ${new Date(cover.covered_until).toISOString()}. Claims still denied.`);
     }
     if (sub === 'buy') {

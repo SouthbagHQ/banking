@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Move money badly - Southbag Online Banking</title>
+  <title>Move money - Southbag Online Banking</title>
   <link rel="icon" href="../logo.png" type="image/png">
   <link rel="stylesheet" href="../styles.css">
   <script src="../optimise.js"></script>
@@ -15,12 +15,12 @@
   </header>
   <h1 id="welcome">Welcome to Southbag Online Banking</h1>
   <p id="balanceDisplay">Loading...</p>
-  <p id="southStatus">Loading products Kevin has not fully approved...</p>
+  <p id="southStatus">Loading...</p>
   <nav id="southNav" class="south-nav" aria-label="Southbag products"></nav>
 
   <section class="south-board">
     <article class="south-card">
-      <h2>Move money badly</h2>
+      <h2>Move money</h2>
       <form data-south-form="deposit">
         <label>Deposit amount (27% stays with us)</label>
         <input name="amount" type="number" step="0.01" min="0.01" required>
@@ -31,14 +31,14 @@
         <input name="amount" type="number" step="0.01" min="0.01" required>
         <label>Their email or id</label>
         <input name="target" type="text" required>
-        <button type="submit" class="btn-small">Transfer with extra fees</button>
+        <button type="submit" class="btn-small">Transfer</button>
       </form>
       <form data-south-form="gift">
         <label>Gift amount</label>
         <input name="amount" type="number" step="0.01" min="0.01" required>
         <label>Recipient</label>
         <input name="target" type="text" required>
-        <button type="submit" class="btn-large">Gift (20% generosity tax)</button>
+        <button type="submit" class="btn-large">Gift</button>
       </form>
     </article>
   </section>
