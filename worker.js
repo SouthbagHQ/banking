@@ -25,6 +25,7 @@ const stateCookie = 'southbag_oauth_state';
 const returnToCookie = 'southbag_oauth_return';
 const slackStateCookie = 'southbag_slack_state';
 const slackLinkPath = '/auth/slack/link';
+const dashboardPath = '/real.html';
 
 const json = (data, status = 200, headers = {}) => new Response(JSON.stringify(data), {
   status,
@@ -163,7 +164,7 @@ async function callback(request, env) {
   const token = random();
   await env.DB.prepare('INSERT INTO sessions VALUES (?, ?, ?, ?)')
     .bind(await hash(token), user.sub, now + 7 * 86400000, now).run();
-  const returnTo = readReturnTo(request) || '/real.html';
+  const returnTo = readReturnTo(request) || dashboardPath;
   return redirect(pending.origin + returnTo, cookie(sessionCookie, token, 7 * 86400),
     cookie(stateCookie, '', 0), cookie(returnToCookie, '', 0));
 }
@@ -338,11 +339,14 @@ export default {
       }
 
       const user = await session(request, env);
-      // Entry point for southbag.cc/onboarding?flow=slack-banking: sign in (or up) through Identity
-      // if needed, then go straight into the Sign in with Slack handshake.
-      if (url.pathname === '/auth/slack/onboard') {
-        if (user) return redirect(url.origin + slackLinkPath);
-        return await login(request, env, slackLinkPath);
+      // Entry points for southbag.cc/onboarding: sign in through Identity if there is no banking
+      // session yet (automatic — the onboarding form already left an Identity cookie on .southbag.cc,
+      // and the callback opens the account), then land on the dashboard. The slack-banking flow
+      // goes straight into the Sign in with Slack handshake instead.
+      if (url.pathname === '/auth/onboard' || url.pathname === '/auth/slack/onboard') {
+        const destination = url.pathname === '/auth/onboard' ? dashboardPath : slackLinkPath;
+        if (user) return redirect(url.origin + destination);
+        return await login(request, env, destination);
       }
       if (url.pathname === slackLinkPath) {
         if (!user) return redirect(url.origin + '/?login=required');
@@ -361,7 +365,7 @@ export default {
         || url.pathname.startsWith('/south/');
       if (protectedPage && !user)
         return redirect(url.origin + '/?login=required');
-      if (url.pathname === '/secureportal.html') return redirect(url.origin + '/real.html');
+      if (url.pathname === '/secureportal.html') return redirect(url.origin + dashboardPath);
       if (url.pathname.startsWith('/api/')) {
         if (!user) return json({ error: 'Authentication required' }, 401);
         if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method) && request.headers.get('origin') !== url.origin)
