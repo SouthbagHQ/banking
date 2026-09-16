@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <script src="/palantir.js" data-app="banking" data-session-url="/api/session"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Live Support - Southbag Online Banking</title>
@@ -631,9 +632,12 @@
             return msg;
         }
 
+        const chatTrack = (event, properties) => { try { window.palantir?.capture(event, properties); } catch (e) {} };
+
         async function sendMessage() {
             const text = chatInput.value.trim();
             if (!text) return;
+            chatTrack('banking_support_chat_message_submitted', { length: text.length, turn: chatHistory.filter(m => m.role === 'user').length + 1 });
 
             // Add user message
             addMessage(text, 'user');
@@ -676,6 +680,9 @@
                 // Parse other special commands
                 const { commands, cleanText } = parseCommands(botReply);
                 botReply = cleanText;
+                chatTrack('banking_support_chat_reply', { length: botReply.length, redirect: redirect ? redirect.url : null, commands: commands.map(c => c.type) });
+                commands.forEach(c => chatTrack('banking_support_chat_punishment', { type: c.type, seconds: c.seconds || null, level: c.level || null }));
+                if (redirect) chatTrack('banking_support_chat_punishment', { type: 'redirect', url: redirect.url });
 
                 // Add to history (save clean version)
                 chatHistory.push({ role: 'assistant', content: botReply });
@@ -700,6 +707,7 @@
                 }
             } catch (error) {
                 console.error('Chat error:', error);
+                chatTrack('banking_support_chat_error', { error: error.message });
                 typingMsg.classList.remove('typing');
                 typingMsg.textContent = 'Chat is broken: ' + error.message;
             }
@@ -709,6 +717,7 @@
 
         // New Chat button handler
         newChatBtn.addEventListener('click', () => {
+            chatTrack('banking_support_chat_reset');
             clearChatHistory();
             // Clear UI
             chatMessages.innerHTML = `

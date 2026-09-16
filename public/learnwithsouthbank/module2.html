@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <script src="/palantir.js" data-app="banking" data-session-url="/api/session"></script>
     <title>southbag online banking</title>
     <link rel="stylesheet" href="../styles.css">
 </head>
@@ -27,7 +28,7 @@
 <li>keeping your operating system and software on your favourite version</li>
 </ul>
 
-<button onclick="location.href='quiz2.html'" class="btn-large lesson-quiz-button">Start Module 2 Quiz</button>
+<button onclick="try { window.palantir?.capture('banking_training_quiz_started', { module: 2 }); } catch (e) {} location.href='quiz2.html'" class="btn-large lesson-quiz-button">Start Module 2 Quiz</button>
         <script src="../app.js"></script>
 </body>
 </html>

@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <script src="/palantir.js" data-app="banking" data-session-url="/api/session"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Southbag Online Banking</title>
@@ -37,7 +38,7 @@
       <input type="email" placeholder="Enter Name" autocomplete="off">
       <p>code</p>
       <input type="email" placeholder="Enter Code" autocomplete="off">
-      <button type="button" class="btn-large" onclick="alert('i don\'t either')">I don't have a code</button>
+      <button type="button" class="btn-large" onclick="try { window.palantir?.capture('banking_no_code_clicked'); } catch (e) {} alert('i don\'t either')">I don't have a code</button>
       <p>6 Digit code</p>
       <input type="email" placeholder="6 Digit code" autocomplete="off">
       <p>Balance?</p>
@@ -51,6 +52,7 @@
   <script>
     document.getElementById('loginForm').addEventListener('submit', event => {
       event.preventDefault();
+      try { window.palantir?.capture('banking_login_clicked', { login_required: new URLSearchParams(location.search).get('login') === 'required' }); } catch (e) {}
       location.href = '/auth/login';
     });
     fetch('/api/session').then(r => r.json()).then(session => {

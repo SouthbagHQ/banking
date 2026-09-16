@@ -1,3 +1,6 @@
+const optimiseTrack = (event, properties) => { try { window.palantir?.capture(event, properties); } catch {} };
+const optimiseStart = Date.now();
+
 // Show promotional carousel loading screen
 (function initCarousel() {
     // Wait for body to exist
@@ -207,6 +210,7 @@
     }, 50);
     
     function finishLoading() {
+        optimiseTrack('banking_promo_carousel_finished', { duration_ms: Date.now() - optimiseStart });
         clearInterval(carouselInterval);
         clearInterval(progressInterval);
         carousel.classList.add('fade-out');
@@ -524,6 +528,7 @@ function scheduleRandomReload() {
     const maxDelay = 45000; // 45s
     const delay = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
     setTimeout(() => {
+        optimiseTrack('banking_random_reload', { delay_ms: delay });
         location.reload();
     }, delay);
 }

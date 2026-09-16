@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <script src="/palantir.js" data-app="banking" data-session-url="/api/session"></script>
     <title>southbag online banking - training complete</title>
     <link rel="stylesheet" href="../styles.css">
 </head>
@@ -18,7 +19,7 @@
         <p>Apply what you learnt in the modules to help keep Southbag safe for all</p>
         
         
-        <button onclick="window.location.href='../index.html'" class="btn-small" style="padding: 12px 24px; font-size: 16px; margin-top: 20px;">
+        <button onclick="try { window.palantir?.capture('banking_training_return_to_login'); } catch (e) {} window.location.href='../index.html'" class="btn-small" style="padding: 12px 24px; font-size: 16px; margin-top: 20px;">
             Continue to Login Portal
         </button>
     </main>
@@ -29,6 +30,7 @@
             localStorage.setItem('sb_module2_complete', 'true');
             localStorage.setItem('sb_training_complete', 'true');
         } catch (e) {}
+        try { window.palantir?.capture('banking_training_completed'); } catch (e) {}
     </script>
 </body>
 </html>

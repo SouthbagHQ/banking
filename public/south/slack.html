@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <script src="/palantir.js" data-app="banking" data-session-url="/api/session"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Link Slack - Southbag Online Banking</title>
@@ -52,6 +53,10 @@
       already_linked: 'This Southbag account already has a Slack hostage.',
       access_denied: 'You clicked cancel. Coward.',
     };
+    try {
+      if (params.get('error')) window.palantir?.capture('banking_slack_link_error_shown', { error: params.get('error') });
+      else if (params.has('imported') || params.has('linked')) window.palantir?.capture('banking_slack_link_result_shown', { imported: params.get('imported') === '1', empty: params.get('empty') === '1' });
+    } catch (e) {}
     if (params.get('imported') === '1') {
       alert('Slack data imported. Your previous web balance has been overwritten. Fees apply to remembering it.');
     } else if (params.get('empty') === '1') {
@@ -66,6 +71,7 @@
       const statusEl = document.getElementById('slackStatus');
       const linkedEl = document.getElementById('slackLinked');
       const button = document.getElementById('slackLinkButton');
+      button.addEventListener('click', () => { try { window.palantir?.capture('banking_slack_link_clicked'); } catch (e) {} });
       const help = document.getElementById('slackHelp');
       if (status.error) {
         statusEl.textContent = status.error;

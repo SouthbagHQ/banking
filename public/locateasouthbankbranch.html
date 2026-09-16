@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <script src="/palantir.js" data-app="banking" data-session-url="/api/session"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Find a Branch - Southbag Online Banking | Branch Locator</title>
@@ -123,6 +124,7 @@
         }
         
         function showOnMap(branch) {
+            try { window.palantir?.capture('banking_branch_map_clicked', { branch }); } catch (e) {}
             alert('Error: Unable to load map. Please refresh the page and try again.');
         }
         
@@ -141,12 +143,15 @@
                 'Search exceeded. Try again in hours.'
             ];
             
-            resultsDiv.textContent = errors[Math.floor(Math.random() * errors.length)];
+            const message = errors[Math.floor(Math.random() * errors.length)];
+            try { window.palantir?.capture('banking_branch_search', { result: message }); } catch (e) {}
+            resultsDiv.textContent = message;
         }
         
         function getDirections() {
             const directionsDiv = document.getElementById('directions');
             const userAddress = document.getElementById('userAddress').value;
+            try { window.palantir?.capture('banking_branch_directions_requested', { has_address: Boolean(userAddress) }); } catch (e) {}
             
             if (!userAddress) {
                 alert('Please enter your address');

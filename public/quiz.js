@@ -71,6 +71,12 @@
   submitBtn.textContent = "Submit";
   submitBtn.addEventListener("click", () => {
     const results = grade();
+    try {
+      window.palantir?.capture("banking_quiz_submitted", {
+        quiz: quiz.title || null, total: results.total, correct: results.correct, passed: results.correct === results.total,
+        answers: results.detail.map(d => ({ question: d.question, correct: d.isCorrect, answer: d.userAnswer })),
+      });
+    } catch (e) {}
     renderResults(results);
   });
 
@@ -78,6 +84,7 @@
   resetBtn.type = "button";
   resetBtn.textContent = "Reset";
   resetBtn.addEventListener("click", () => {
+    try { window.palantir?.capture("banking_quiz_reset", { quiz: quiz.title || null }); } catch (e) {}
     form.reset();
     const resultsEl = $("#quiz-results");
     if (resultsEl) resultsEl.remove();

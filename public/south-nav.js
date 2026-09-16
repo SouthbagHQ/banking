@@ -25,6 +25,7 @@ function injectSouthNav() {
     const link = document.createElement('a');
     link.href = section.href;
     link.textContent = section.label;
+    link.addEventListener('click', () => { try { window.palantir?.capture('banking_south_nav_clicked', { label: section.label, href: section.href, from: path }); } catch {} });
     const sectionPath = section.href.replace(/\.html$/, '');
     if (path === section.href || path === sectionPath || path.endsWith(section.href)) {
       link.setAttribute('aria-current', 'page');

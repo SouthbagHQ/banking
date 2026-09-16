@@ -1,4 +1,5 @@
 const southMoney = cents => '$' + (Number(cents || 0) / 100).toFixed(2);
+const southTrack = (event, properties) => { try { window.palantir?.capture(event, properties); } catch {} };
 
 async function southRequest(body) {
   const response = await fetch('/api/economy', {
@@ -6,9 +7,15 @@ async function southRequest(body) {
     headers: body ? { 'content-type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (response.status === 401) return location.href = '/auth/login';
+  if (response.status === 401) {
+    southTrack('banking_session_expired', { path: '/api/economy' });
+    return location.href = '/auth/login';
+  }
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error || data.text || 'Southbag broke');
+  if (!response.ok) {
+    southTrack('banking_api_error', { path: '/api/economy', status: response.status, error: data.error || null });
+    throw new Error(data.error || data.text || 'Southbag broke');
+  }
   return data;
 }
 
@@ -22,8 +29,10 @@ function setText(id, text) {
 }
 
 async function southAction(action, extra = {}) {
+  southTrack('banking_product_action', { action, ...extra });
   try {
     const result = await southRequest({ action, ...extra });
+    southTrack(result.ok === false ? 'banking_product_action_failed' : 'banking_product_action_succeeded', { action, error: result.error || null });
     southLog(result.text || 'Kevin filed that somewhere.');
     await loadAccount().catch(() => {});
     await southRefresh().catch(() => {});
@@ -99,7 +108,7 @@ async function southRefresh() {
       button.type = 'button';
       button.className = 'btn-small';
       button.textContent = 'Buy';
-      button.addEventListener('click', () => southAction('shop', { item: id }));
+      button.addEventListener('click', () => { southTrack('banking_shop_buy_clicked', { item: id, name: item.name, price: item.price }); southAction('shop', { item: id }); });
       card.append(heading, price, copy, button);
       shop.appendChild(card);
     });

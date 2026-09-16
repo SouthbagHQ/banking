@@ -1,3 +1,8 @@
+// Palantir (PostHog) client events. Safe to call before /palantir.js has finished loading.
+function track(event, properties) {
+  try { if (window.palantir) window.palantir.capture(event, properties); } catch (e) {}
+}
+
 document.addEventListener('DOMContentLoaded', function() {
   // Check if training is required on first visit
   var path = window.location.pathname || '';
@@ -7,6 +12,7 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // If not on training pages and training not complete, redirect to training
   if (!isLearningModule && !trainingComplete) {
+    track('banking_training_redirect', { from: path });
     window.location.href = '/learnwithsouthbank/start.html';
     return;
   }
@@ -17,6 +23,7 @@ document.addEventListener('DOMContentLoaded', function() {
     btn.addEventListener('click', function(){
       var target = btn.getAttribute('href');
       if (target) {
+        track('banking_button_navigation', { target: target, label: (btn.textContent || '').trim() });
         window.location.href = target;
       }
     });
@@ -65,6 +72,7 @@ document.addEventListener('DOMContentLoaded', function() {
       button.className = 'btn-small';
       button.textContent = item.action;
       button.addEventListener('click', function() {
+        track('banking_announcement_clicked', { title: item.title, action: item.action, href: item.href || null });
         if (item.onClick) item.onClick();
         if (item.href) window.location.href = item.href;
       });
@@ -162,18 +170,21 @@ document.addEventListener('DOMContentLoaded', function() {
 
       document.getElementById('savePrivacyBtn').addEventListener('click', function() {
         settings = collectSettings();
+        track('banking_privacy_settings_saved', { choice: 'custom', settings: settings });
         saveSettings(settings);
         renderPanel(false);
       });
 
       document.getElementById('rejectOptionalPrivacyBtn').addEventListener('click', function() {
         settings = collectSettings(false);
+        track('banking_privacy_settings_saved', { choice: 'reject_optional', settings: settings });
         saveSettings(settings);
         renderPanel(false);
       });
 
       document.getElementById('allowEveryPermissionBtn').addEventListener('click', function() {
         settings = collectSettings(true);
+        track('banking_privacy_settings_saved', { choice: 'allow_everything', settings: settings });
         saveSettings(settings);
         panel.querySelectorAll('input[type="checkbox"]').forEach(function(input) { input.checked = true; });
         var status = document.getElementById('privacyPermissionStatus');
@@ -221,6 +232,7 @@ document.addEventListener('DOMContentLoaded', function() {
       document.body.appendChild(popup);
 
       function close(choice) {
+        track('banking_alerts_popup_closed', { choice: choice });
         try { localStorage.setItem('sb_alert_subscription_choice', choice); } catch (e) {}
         popup.remove();
       }
@@ -230,6 +242,7 @@ document.addEventListener('DOMContentLoaded', function() {
       document.getElementById('subscribeAlertsBtn').addEventListener('click', function() {
         var email = document.getElementById('alertsEmail').value || 'the email Southbag imagines you have';
         var type = document.getElementById('alertsType').value;
+        track('banking_alerts_subscribed', { type: type, has_email: Boolean(document.getElementById('alertsEmail').value) });
         try {
           localStorage.setItem('sb_alert_subscription', JSON.stringify({ email: email, type: type }));
         } catch (e) {}
@@ -289,6 +302,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var expectedRecoveryCode = '';
 
     forgotPasswordBtn.addEventListener('click', function() {
+      track('banking_password_recovery_opened');
       recoveryPanel.hidden = false;
       if (recoveryEmail) {
         var loginEmail = document.getElementById('email');
@@ -300,6 +314,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (recoveryEmailForm) {
       recoveryEmailForm.addEventListener('submit', function(e) {
         e.preventDefault();
+        track('banking_password_recovery_code_requested');
         expectedRecoveryCode = String(Math.floor(100000 + Math.random() * 900000));
         recoveryStatus.textContent = 'Enter the code sent to ' + recoveryEmail.value + '. Static demo code: ' + expectedRecoveryCode;
         recoveryCodeForm.hidden = false;
@@ -315,9 +330,11 @@ document.addEventListener('DOMContentLoaded', function() {
       recoveryCodeForm.addEventListener('submit', function(e) {
         e.preventDefault();
         if (recoveryCode.value.trim() !== expectedRecoveryCode) {
+          track('banking_password_recovery_code_rejected');
           recoveryStatus.textContent = 'That code was wrong. Southbag has narrowed the suspect list to you.';
           return;
         }
+        track('banking_password_recovery_code_verified');
         recoveryStatus.textContent = 'Code verified. Choose a new password.';
         recoveryResetForm.hidden = false;
         recoveryChecklist.isValid();
@@ -329,9 +346,11 @@ document.addEventListener('DOMContentLoaded', function() {
       recoveryResetForm.addEventListener('submit', function(e) {
         e.preventDefault();
         if (!recoveryChecklist.isValid()) {
+          track('banking_password_recovery_reset_rejected');
           recoveryStatus.textContent = 'Your new password is not Southbag enough yet. Fix the checklist first.';
           return;
         }
+        track('banking_password_recovery_reset_completed');
         try {
           localStorage.setItem('sb_password', recoveryNewPassword.value);
           localStorage.setItem('sb_login_count', '0');
@@ -362,6 +381,7 @@ document.addEventListener('DOMContentLoaded', function() {
         btn.style.marginTop = '12px';
         document.body.appendChild(btn);
         btn.addEventListener('click', function(){
+          track('banking_portal_setup_reset');
           try {
             localStorage.removeItem('sb_password');
             localStorage.removeItem('sb_login_count');
@@ -396,6 +416,7 @@ document.addEventListener('DOMContentLoaded', function() {
         form.addEventListener('submit', function(e){
           e.preventDefault();
           var val = (document.getElementById('newPwd').value || '').trim();
+          track('banking_portal_password_submitted', { valid: portalChecklist.isValid() });
           if (portalChecklist.isValid()) {
             try { localStorage.setItem('sb_password', val); } catch (e) {}
             try { localStorage.setItem('sb_login_count', '0'); } catch (e) {}
@@ -420,6 +441,7 @@ document.addEventListener('DOMContentLoaded', function() {
         attachResetButton();
       } else if (pwd === stored) {
         var count = parseInt(localStorage.getItem('sb_login_count') || '0', 10);
+        track('banking_portal_unlocked', { login_count: count + 1 });
         if (count >= 1) {
           // Second (or subsequent) login: go to /real.html (absolute path)
           window.location.href = '/real.html';
@@ -429,6 +451,7 @@ document.addEventListener('DOMContentLoaded', function() {
           attachResetButton();
         }
       } else {
+        track('banking_portal_unlock_failed');
         content.innerHTML = '<h1>Incorrect Password</h1><p>Access denied.</p><a href="index.html" class="btn-small">Back to login</a>';
         attachResetButton();
       }
@@ -446,6 +469,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   if (openBtn) {
     openBtn.addEventListener('click', function() {
+      track('banking_chat_opened');
       chatWidget.classList.add('active');
       openBtn.style.display = 'none';
     });
@@ -453,6 +477,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   if (closeBtn) {
     closeBtn.addEventListener('click', function() {
+      track('banking_chat_closed');
       chatWidget.classList.remove('active');
       if (openBtn) openBtn.style.display = 'block';
     });
@@ -467,6 +492,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var sendMessage = async function() {
       var text = chatInput.value.trim();
       if (text) {
+        track('banking_chat_message_submitted', { length: text.length, turn: chatHistory.length });
         // Add user message to UI
         var userMsg = document.createElement('div');
         userMsg.className = 'chat-message user';
@@ -514,6 +540,7 @@ document.addEventListener('DOMContentLoaded', function() {
           typingMsg.textContent = botReply;
         } catch (error) {
           console.error('Chat error:', error);
+          track('banking_chat_error', { error: error.message });
           typingMsg.textContent = 'Chat is broken: ' + error.message;
         }
 
@@ -533,6 +560,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (toggle) {
     toggle.addEventListener('click', () => {
       document.body.classList.toggle('dark-mode');
+      track('banking_dark_mode_toggled', { dark: document.body.classList.contains('dark-mode') });
     });
   }
 });
@@ -541,6 +569,7 @@ document.addEventListener('DOMContentLoaded', () => {
 document.addEventListener('DOMContentLoaded', () => {
   function scheduleNextPopup(isFirst = false) {
     function showMeetingPopup() {
+      track('banking_meeting_popup_shown', { first: isFirst });
       alert('You cannot do that online. Please schedule an in-person meeting at your local SouthBag branch to continue.');
       scheduleNextPopup(false);
     }

@@ -13,11 +13,19 @@ import {
   SHOP_ITEMS,
   warnUser,
 } from './economy.js';
+import { capture } from './palantir.js';
 import { bytesToBase64, createSlackClient, verifySlackRequest } from './slack-api.js';
 import { executeCommands, parseCommands } from './slack-commands.js';
 import { KEVIN_PROMPT, KEVIN_TRIGGER_REGEX, kevinLetterPrompt, SYSTEM_PROMPT } from './slack-prompt.js';
 
 const DEFAULT_ALLOWED_CHANNEL = 'C0AH7GB4V6X';
+
+// Slack-side Palantir events. Linked users share their banking id with the web; unlinked ones are
+// tracked as `slack:<id>` until they link.
+function track(bot, event, user, slackId, properties = {}) {
+  return capture(event, user?.id ?? (slackId ? `slack:${slackId}` : undefined),
+    { via: 'slack', slack_user_id: slackId ?? null, ...properties }, { waitUntil: bot.waitUntil });
+}
 const DEFAULT_LINK_URL = 'https://southbag.cc/onboarding?flow=slack-banking';
 const SUPPORTED_IMAGE_MIMES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp']);
 const SLACK_IMAGE_URL_FIELDS = ['thumb_1024', 'thumb_960', 'thumb_720', 'thumb_480', 'url_private_download', 'url_private'];
@@ -313,6 +321,11 @@ async function runEconomy(bot, user, body, { watch = [], description } = {}) {
   const watched = [user, ...watch].filter((item, index, list) => item && list.findIndex(other => other.id === item.id) === index);
   const before = await Promise.all(watched.map(item => bot.repo.getAccount(item.id)));
   const result = await handleEconomy(bot.repo, user, body);
+  track(bot, 'banking_economy_action', user, user?.slack_user_id, {
+    action: String(body.action || body.command || '').replace(/^\/south-/, '').split(/\s+/)[0].toLowerCase(),
+    sub: body.sub || null, ok: result.ok, error: result.ok ? null : result.error || null,
+    amount: body.amount ?? null, item: body.item ?? null,
+  });
   const label = description || (body.action || String(body.command || '').replace(/^\/south-/, '').split(/\s+/)[0] || 'Southbag').replace(/-/g, ' ');
   for (let i = 0; i < watched.length; i++) {
     const after = await bot.repo.getAccount(watched[i].id);
@@ -355,12 +368,14 @@ export async function handleSlashCommand(bot, command) {
   const respond = payload => bot.slack.respond(command.response_url, withNudge(payload, nudge));
 
   const banned = await bannedMessage(bot, slackId);
+  track(bot, 'banking_slack_command', null, slackId, { action, has_text: Boolean(text), banned: Boolean(banned) });
   if (banned) return respond({ response_type: 'ephemeral', text: banned });
 
   if (action === 'open-account') {
     const resolved = await resolveSlackUser(bot.repo, slackId, { create: true, name: text || command.user_name || null });
     nudge = linkNudge(bot, resolved.user);
     const result = await runEconomy(bot, resolved.user, { action: 'open-account' });
+    if (resolved.created) track(bot, 'banking_account_opened', resolved.user, slackId, { imported: resolved.imported });
     const account = result.account;
     const intro = resolved.imported
       ? 'Welcome back. The old bot remembered everything. Especially the fees.'
@@ -703,6 +718,10 @@ async function openLotteryBuy(bot, command, user, text) {
 
 // --- interactivity (block_actions, view_submission, view_closed) ---
 export async function handleInteraction(bot, payload, background = bot.waitUntil) {
+  track(bot, 'banking_slack_interaction', null, payload.user?.id, {
+    type: payload.type, callback_id: payload.view?.callback_id || null,
+    action_ids: (payload.actions || []).map(action => action.action_id).filter(Boolean),
+  });
   if (payload.type === 'block_actions') {
     background(handleBlockAction(bot, payload));
     return empty();
@@ -1110,6 +1129,7 @@ export async function handleEvent(bot, payload) {
   bot.botUserId = payload.authorizations?.[0]?.user_id || bot.botUserId;
   const event = payload.event || {};
   if (event.type === 'app_home_opened') {
+    track(bot, 'banking_slack_home_opened', null, event.user, { tab: event.tab || null });
     if (event.tab === 'home') await publishHome(bot, event.user);
     return;
   }
@@ -1203,6 +1223,9 @@ export async function handleMessage(bot, event) {
   const say = payload => bot.slack.postMessage({ channel: channelId, ...(typeof payload === 'string' ? { text: payload } : payload) });
 
   const banned = await bannedMessage(bot, slackId);
+  track(bot, 'banking_slack_message', null, slackId, {
+    dm: isDM, subtype: event.subtype || null, threaded: Boolean(event.thread_ts), has_files: Boolean(event.files?.length), banned: Boolean(banned),
+  });
   if (banned) {
     try { await bot.slack.postEphemeral({ channel: channelId, user: slackId, text: banned }); } catch {}
     return;
