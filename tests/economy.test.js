@@ -50,6 +50,11 @@ test('transfers apply the famous fee pile', async () => {
   const recipient = await repo.getAccount(other.id);
   assert.equal(recipient.balance, 21000);
   assert.ok(sender.balance < 19000);
+  // Callers that aren't Slack (Southbag Social) get the numbers, not just the text.
+  assert.equal(result.amount, 1000);
+  assert.equal(result.fees, 50 + 150 + 2 + 10 + 7 + 3 + 30 + 15);
+  assert.equal(result.balance, sender.balance);
+  assert.equal(sender.balance, 20000 - 1000 - result.fees);
 });
 
 test('shop sells Blahaj and inventory remembers', async () => {

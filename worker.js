@@ -495,25 +495,39 @@ const app = {
   },
 };
 
-// Other Southbag products bill customers through a service binding to this entrypoint (RPC; it is
-// not reachable from the internet). Southbag Social takes Southbag Verified from here:
-//   env.BANKING.charge({ userId, email, name, amount, product, description }) -> { balance, opened }
-// userId is the Identity `sub`. Customers without an account get one first (never overwriting an
-// existing profile). The money is taken whatever the balance; overdrafts are the customer's problem.
+// Other Southbag products reach customers' money through a service binding to this entrypoint (RPC;
+// it is not reachable from the internet). userId is always the Identity `sub`. Customers without an
+// account get one first (with the usual opening balance), never overwriting an existing profile.
+//   charge({ userId, email, name, amount, product, description }) -> { balance, opened }
+//     Southbag Social's Southbag Verified. Taken whatever the balance.
+//   transfer({ from, to, amount }) -> { ok, error?, text, amount?, fees?, balance? }
+//     Southbag Social's payments between people: the same transfer (and fee pile) as /south-transfer.
+//     from / to are { userId, email, name }; amount is in cents.
+//   account({ userId }) -> { balance, account_number, status, transactions } | null
+async function ensureCustomer(env, { userId, email = null, name = null }, now = Date.now()) {
+  const existing = await env.DB.prepare('SELECT 1 AS present FROM accounts WHERE user_id = ?').bind(userId).first();
+  if (existing) return false;
+  await env.DB.batch([
+    env.DB.prepare(`INSERT OR IGNORE INTO users (id, email, name, picture, created_at, updated_at) VALUES (?, ?, ?, NULL, ?, ?)`)
+      .bind(userId, email, name, now, now),
+    env.DB.prepare(`INSERT OR IGNORE INTO accounts
+      (user_id, balance, updated_at, account_number, status, inventory) VALUES (?, 1000000, ?, ?, 'active', '[]')`)
+      .bind(userId, now, accountNumber()),
+  ]);
+  return true;
+}
+
+const validCustomer = who => who && typeof who.userId === 'string' && who.userId;
+
 export class Billing extends WorkerEntrypoint {
   async charge({ userId, email = null, name = null, amount, product, description }) {
-    if (typeof userId !== 'string' || !userId) throw new Error('userId is required');
+    if (!validCustomer({ userId })) throw new Error('userId is required');
     if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 100000000) throw new Error('Invalid amount');
     const env = this.env;
     const now = Date.now();
     const text = `${String(product || 'Southbag').slice(0, 60)}: ${String(description || 'Charge').slice(0, 120)}`;
-    const existing = await env.DB.prepare('SELECT 1 AS present FROM accounts WHERE user_id = ?').bind(userId).first();
+    const opened = await ensureCustomer(env, { userId, email, name }, now);
     await env.DB.batch([
-      env.DB.prepare(`INSERT OR IGNORE INTO users (id, email, name, picture, created_at, updated_at) VALUES (?, ?, ?, NULL, ?, ?)`)
-        .bind(userId, email, name, now, now),
-      env.DB.prepare(`INSERT OR IGNORE INTO accounts
-        (user_id, balance, updated_at, account_number, status, inventory) VALUES (?, 1000000, ?, ?, 'active', '[]')`)
-        .bind(userId, now, accountNumber()),
       env.DB.prepare('INSERT INTO transactions (user_id, amount, kind, description, created_at) VALUES (?, ?, ?, ?, ?)')
         .bind(userId, -amount, 'subscription', text, now),
       env.DB.prepare('UPDATE accounts SET balance = balance - ?, updated_at = ? WHERE user_id = ?')
@@ -521,9 +535,34 @@ export class Billing extends WorkerEntrypoint {
     ]);
     const account = await env.DB.prepare('SELECT balance FROM accounts WHERE user_id = ?').bind(userId).first();
     const waitUntil = promise => this.ctx.waitUntil(promise);
-    if (!existing) capture('banking_account_opened', userId, { via: 'billing', product: product || null }, { waitUntil });
+    if (opened) capture('banking_account_opened', userId, { via: 'billing', product: product || null }, { waitUntil });
     capture('banking_billing_charged', userId, { product: product || null, amount, balance: account.balance }, { waitUntil });
-    return { balance: account.balance, opened: !existing };
+    return { balance: account.balance, opened };
+  }
+
+  async transfer({ from, to, amount }) {
+    if (!validCustomer(from) || !validCustomer(to)) throw new Error('from and to are required');
+    if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 100000000) throw new Error('Invalid amount');
+    const env = this.env;
+    const waitUntil = promise => this.ctx.waitUntil(promise);
+    for (const who of [from, to]) {
+      if (await ensureCustomer(env, who)) capture('banking_account_opened', who.userId, { via: 'transfer' }, { waitUntil });
+    }
+    const result = await handleEconomy(createD1Repo(env.DB),
+      { id: from.userId, email: from.email ?? null, name: from.name ?? null },
+      { action: 'transfer', amount: amount / 100, target: to.userId });
+    capture(result.ok ? 'banking_transfer_sent' : 'banking_transfer_rejected', from.userId,
+      { via: 'social', amount, fees: result.fees ?? null, error: result.error ?? null }, { waitUntil });
+    return result;
+  }
+
+  async account({ userId }) {
+    if (!validCustomer({ userId })) throw new Error('userId is required');
+    const account = await this.env.DB.prepare('SELECT balance, account_number, status FROM accounts WHERE user_id = ?').bind(userId).first();
+    if (!account) return null;
+    const { results } = await this.env.DB.prepare(`SELECT amount, kind, description, created_at FROM transactions
+      WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 10`).bind(userId).all();
+    return { ...account, transactions: results };
   }
 }
 

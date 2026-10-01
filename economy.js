@@ -568,7 +568,8 @@ const actions = {
     await charge(repo, account, amount, 'transfer', `Transfer to ${who(target)}`);
     await charge(repo, account, fees, 'fee', 'Transfer fees (15% + processing + breathing + Kevin + digital transit + existence + cross-desk + compliance theater)');
     await credit(repo, recipient, amount, 'deposit', `Transfer from ${who(user)}`);
-    return ok(`Sent ${money(amount)}. Fees ${money(fees)}. They got the amount. We got the rest. Balance ${money(account.balance)}.`);
+    return ok(`Sent ${money(amount)}. Fees ${money(fees)}. They got the amount. We got the rest. Balance ${money(account.balance)}.`,
+      { amount, fees, balance: account.balance });
   },
   async loan(repo, user, body) {
     const [account, err] = await needAccount(repo, user.id);
