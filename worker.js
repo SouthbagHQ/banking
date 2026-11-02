@@ -1,5 +1,7 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
-import { applyDailyAccountFee, applyDailyAccountFees, createD1Repo, handleEconomy } from './economy.js';
+import { applyDailyAccountFee, applyDailyAccountFees, billingCharge, createD1Repo, flushFreezeReports, handleEconomy } from './economy.js';
+import { centralStatus, freezeFeeException, FROZEN_TEXT, STATUS_UNKNOWN_TEXT } from './identity.js';
+import { identityHooks } from './identity.js';
 import {
   decodeJwtPayload,
   exchangeSlackCode,
@@ -258,7 +260,7 @@ async function accountApi(request, env, user, ctx) {
   const track = tracker(request, ctx, user);
   if (request.method === 'GET') {
     track.capture('banking_account_viewed', { via: user.bearer ? 'mobile' : 'web' });
-    const repo = createD1Repo(env.DB);
+    const repo = createD1Repo(env.DB, identityHooks(env));
     const account = await repo.getAccount(user.id);
     if (account) await applyDailyAccountFee(repo, account);
     const transactions = await env.DB.prepare(`SELECT id, amount, kind, description, created_at
@@ -324,7 +326,7 @@ async function chatApi(request, env, user, ctx) {
 }
 
 async function economyApi(request, env, user, ctx) {
-  const repo = createD1Repo(env.DB);
+  const repo = createD1Repo(env.DB, identityHooks(env));
   const track = tracker(request, ctx, user);
   if (request.method === 'GET') {
     track.capture('banking_economy_overview');
@@ -485,6 +487,16 @@ const app = {
         if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method) && !user.bearer
           && request.headers.get('origin') !== url.origin)
           return json({ error: 'Invalid origin' }, 403);
+        // Account-level freeze, checked FRESH with Identity per request (no cache). A KNOWN
+        // frozen account is blocked entirely, reads included - /api/* is all private account
+        // data. While the central answer is UNKNOWN (Identity configured but unreachable)
+        // EVERYTHING fails closed, reads included.
+        {
+          const central = await centralStatus(env, user.id);
+          // Fail CLOSED: while the status is unknown there are no private reads either.
+          if (central === 'unknown') return json({ error: STATUS_UNKNOWN_TEXT }, 503);
+          if (central !== 'off' && central.frozen) return json({ error: FROZEN_TEXT }, 423);
+        }
         if (url.pathname === '/api/account') return await accountApi(request, env, user, ctx);
         if (url.pathname === '/api/chat') return await chatApi(request, env, user, ctx);
         if (url.pathname === '/api/economy') return await economyApi(request, env, user, ctx);
@@ -523,24 +535,22 @@ async function ensureCustomer(env, { userId, email = null, name = null }, now = 
 const validCustomer = who => who && typeof who.userId === 'string' && who.userId;
 
 export class Billing extends WorkerEntrypoint {
-  async charge({ userId, email = null, name = null, amount, product, description }) {
+  async charge(input) {
+    const { userId, amount, product } = input || {};
     if (!validCustomer({ userId })) throw new Error('userId is required');
-    if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 100000000) throw new Error('Invalid amount');
-    const env = this.env;
-    const now = Date.now();
-    const text = `${String(product || 'Southbag').slice(0, 60)}: ${String(description || 'Charge').slice(0, 120)}`;
-    const opened = await ensureCustomer(env, { userId, email, name }, now);
-    await env.DB.batch([
-      env.DB.prepare('INSERT INTO transactions (user_id, amount, kind, description, created_at) VALUES (?, ?, ?, ?, ?)')
-        .bind(userId, -amount, 'subscription', text, now),
-      env.DB.prepare('UPDATE accounts SET balance = balance - ?, updated_at = ? WHERE user_id = ?')
-        .bind(amount, now, userId),
-    ]);
-    const account = await env.DB.prepare('SELECT balance FROM accounts WHERE user_id = ?').bind(userId).first();
+    // Fee exception: while an account is frozen the ONLY charges allowed are Southbag Identity's
+    // exact unfreeze-flow fees, authorized by the FREEZE_FEE_SECRET credential (Identity holds
+    // it; the key prefix alone is caller-controlled and proves nothing). An ordinary service
+    // charge - Social Verified, anything else - must not become a freeze bypass.
+    const central = await centralStatus(this.env, userId);
+    if (central === 'unknown') throw new Error(STATUS_UNKNOWN_TEXT);
+    if (central !== 'off' && central.frozen && !freezeFeeException(input, this.env))
+      throw new Error(FROZEN_TEXT);
     const waitUntil = promise => this.ctx.waitUntil(promise);
-    if (opened) capture('banking_account_opened', userId, { via: 'billing', product: product || null }, { waitUntil });
-    capture('banking_billing_charged', userId, { product: product || null, amount, balance: account.balance }, { waitUntil });
-    return { balance: account.balance, opened };
+    const result = await billingCharge(this.env.DB, input);
+    if (result.opened) capture('banking_account_opened', userId, { via: 'billing', product: product || null }, { waitUntil });
+    capture('banking_billing_charged', userId, { product: product || null, amount, balance: result.balance, duplicate: result.duplicate ?? false }, { waitUntil });
+    return result;
   }
 
   async transfer({ from, to, amount }) {
@@ -548,10 +558,14 @@ export class Billing extends WorkerEntrypoint {
     if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 100000000) throw new Error('Invalid amount');
     const env = this.env;
     const waitUntil = promise => this.ctx.waitUntil(promise);
+    // A frozen account cannot move money (charges, including the unfreeze fee, still can).
     for (const who of [from, to]) {
+      const central = await centralStatus(env, who.userId);
+      if (central === 'unknown') return { ok: false, error: 'unavailable', text: STATUS_UNKNOWN_TEXT };
+      if (central !== 'off' && central.frozen) return { ok: false, error: 'frozen', text: FROZEN_TEXT };
       if (await ensureCustomer(env, who)) capture('banking_account_opened', who.userId, { via: 'transfer' }, { waitUntil });
     }
-    const result = await handleEconomy(createD1Repo(env.DB),
+    const result = await handleEconomy(createD1Repo(env.DB, identityHooks(env)),
       { id: from.userId, email: from.email ?? null, name: from.name ?? null },
       { action: 'transfer', amount: amount / 100, target: to.userId });
     capture(result.ok ? 'banking_transfer_sent' : 'banking_transfer_rejected', from.userId,
@@ -559,8 +573,22 @@ export class Billing extends WorkerEntrypoint {
     return result;
   }
 
+  // Southbag Identity mirrors the account-level freeze into the local status here (the daily fee
+  // and the economy guards read it). The binding alone is a capability every BANKING-bound service
+  // has, so this entrypoint also requires ACCOUNT_STATUS_SECRET - only Identity holds it.
+  async setStatus({ userId, status, token }) {
+    if (!validCustomer({ userId })) throw new Error('userId is required');
+    if (!this.env.ACCOUNT_STATUS_SECRET || token !== this.env.ACCOUNT_STATUS_SECRET) throw new Error('forbidden');
+    return createD1Repo(this.env.DB).setAccountStatus(userId, status);
+  }
+
   async account({ userId }) {
     if (!validCustomer({ userId })) throw new Error('userId is required');
+    // Private account data: a known-frozen account reads as nothing. (Server-to-server callers
+    // enforce the freeze before this, but the entrypoint must not rely on that.)
+    const central = await centralStatus(this.env, userId);
+    if (central === 'unknown') throw new Error(STATUS_UNKNOWN_TEXT);
+    if (central !== 'off' && central.frozen) return null;
     const account = await this.env.DB.prepare('SELECT balance, account_number, status FROM accounts WHERE user_id = ?').bind(userId).first();
     if (!account) return null;
     const { results } = await this.env.DB.prepare(`SELECT amount, kind, description, created_at FROM transactions
@@ -581,6 +609,6 @@ export default {
   },
   // Daily account maintenance fee, charged every day no matter what.
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(applyDailyAccountFees(createD1Repo(env.DB)));
+    ctx.waitUntil(applyDailyAccountFees(createD1Repo(env.DB, identityHooks(env))));
   },
 };

@@ -20,6 +20,10 @@
       "database_id": "43a4e76a-b997-403a-ad4e-6bbabc008469"
     }
   ],
+  // `wrangler secret put IDENTITY_INTERNAL_SECRET` with this service's entry from Identity's
+  // INTERNAL_API_SECRETS (key "southbag-online-banking"): loan-default freezes are reported to
+  // Identity's internal API (identity.js). Without it, reports stay queued in
+  // identity_freeze_outbox and the daily cron keeps retrying.
   "observability": { "enabled": true },
   "triggers": {
     "crons": ["0 0 * * *"]
