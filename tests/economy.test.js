@@ -1,4 +1,4 @@
-import { createMemoryRepo, handleEconomy, parseCommand } from '../economy.js';
+import { applyDailyAccountFee, applyDailyAccountFees, createMemoryRepo, handleEconomy, parseCommand } from '../economy.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -98,25 +98,62 @@ test('daily account fee applies once per day of account activity', async () => {
   assert.equal((await repo.getAccount(me.id)).balance, 10000 - 100 - 7 - 7, 'no second daily fee inside 24h');
 });
 
-test('daily account fee returns after 24 hours', async () => {
+test('daily account fee returns on the next day', async () => {
   const { repo, me } = await setup(10000);
   await repo.updateAccount(me.id, { last_account_fee_at: Date.now() - 86400001 });
   await handleEconomy(repo, me, { action: 'balance' });
   assert.equal((await repo.getAccount(me.id)).balance, 10000 - 100 - 7);
 });
 
-test('daily account fee skips frozen accounts and shows in the ledger', async () => {
+test('daily account fee does not charge twice on the same day', async () => {
+  const { repo, me } = await setup(10000);
+  // Fee already charged at the start of today (UTC).
+  await repo.updateAccount(me.id, { last_account_fee_at: Math.floor(Date.now() / 86400000) * 86400000 });
+  await handleEconomy(repo, me, { action: 'balance' });
+  assert.equal((await repo.getAccount(me.id)).balance, 10000 - 7, 'only the balance inquiry pile, no second daily fee');
+});
+
+test('daily account fee sweep charges every account, no matter what', async () => {
+  const { repo, me, other } = await setup(10000);
+  await repo.updateAccount(me.id, { last_account_fee_at: null });
+  await repo.updateAccount(other.id, { last_account_fee_at: Date.now() - 86400001 });
+  const { charged, failed } = await applyDailyAccountFees(repo);
+  assert.equal(charged, 2);
+  assert.equal(failed, 0);
+  assert.equal((await repo.getAccount(me.id)).balance, 10000 - 100);
+  assert.equal((await repo.getAccount(other.id)).balance, 10000 - 100);
+  // A repeated sweep on the same day (cron retry, manual re-run) charges nobody again.
+  assert.deepEqual(await applyDailyAccountFees(repo), { charged: 0, failed: 0 });
+  assert.equal((await repo.getAccount(me.id)).balance, 10000 - 100);
+});
+
+test('daily account fee cannot double-charge under a concurrent claim', async () => {
+  const { repo, me } = await setup(10000);
+  await repo.updateAccount(me.id, { last_account_fee_at: null });
+  const account = await repo.getAccount(me.id);
+  const results = await Promise.all([applyDailyAccountFee(repo, account), applyDailyAccountFee(repo, { ...account })]);
+  assert.deepEqual(results, [true, false]);
+  const txns = await repo.listTxns(me.id, 10);
+  assert.equal(txns.filter(row => row.description === 'Daily account maintenance fee').length, 1);
+  assert.equal((await repo.getAccount(me.id)).balance, 10000 - 100);
+});
+
+test('frozen accounts pay a $2 daily frozen account fee instead of $1', async () => {
   const { repo, me } = await setup(10000);
   await repo.updateAccount(me.id, { last_account_fee_at: null, status: 'frozen' });
-  await handleEconomy(repo, me, { action: 'balance' });
+  const first = await handleEconomy(repo, me, { action: 'balance' });
+  assert.equal(first.ok, true, 'checking a balance is still allowed while frozen, for a price');
   let txns = await repo.listTxns(me.id, 10);
-  assert.ok(!txns.some(row => row.description === 'Daily account maintenance fee'), 'frozen account not charged the daily fee');
+  const fee = txns.find(row => row.description === 'Daily frozen account fee');
+  assert.ok(fee, 'frozen fee txn recorded');
+  assert.equal(fee.kind, 'fee');
+  assert.equal(fee.amount, -200);
+  assert.ok(!txns.some(row => row.description === 'Daily account maintenance fee'), 'frozen accounts pay the frozen fee, not the regular fee');
+  assert.equal((await repo.getAccount(me.id)).balance, 10000 - 200 - 7);
+  // Unfreezing on the same day does not trigger the regular $1 as well.
   await repo.updateAccount(me.id, { status: 'active' });
   await handleEconomy(repo, me, { action: 'balance' });
   txns = await repo.listTxns(me.id, 10);
-  const fee = txns.find(row => row.description === 'Daily account maintenance fee');
-  assert.ok(fee, 'fee txn recorded');
-  assert.equal(fee.kind, 'fee');
-  assert.equal(fee.amount, -100);
-  assert.equal((await repo.getAccount(me.id)).balance, 10000 - 7 - 100 - 7);
+  assert.ok(!txns.some(row => row.description === 'Daily account maintenance fee'), 'one daily fee per account per day');
+  assert.equal((await repo.getAccount(me.id)).balance, 10000 - 200 - 7 - 7);
 });

@@ -169,19 +169,45 @@ async function charge(repo, account, amount, kind, description) {
 
 export const DAILY_ACCOUNT_FEE_CENTS = 100;
 export const DAILY_ACCOUNT_FEE_DESCRIPTION = 'Daily account maintenance fee';
+export const FROZEN_ACCOUNT_FEE_CENTS = 200;
+export const FROZEN_ACCOUNT_FEE_DESCRIPTION = 'Daily frozen account fee';
 
-// Once per 24 hours of account activity the house takes its cut, on top of
-// whatever the activity itself costs. Uses the same charge path as every
-// other fee: it lands in the ledger and can take the balance negative,
-// like any self-respecting fee.
+const utcDayStart = at => Math.floor(at / 86400000) * 86400000;
+
+// Once per UTC day the house takes its cut, whether or not the account is
+// used: $1 for a normal account, $2 for a frozen one. Being frozen stops you
+// moving money, not the meter. Uses the same charge path as every other fee:
+// it lands in the ledger and can take the balance negative, like any
+// self-respecting fee. The claim step is an atomic check-and-set, so the
+// cron sweep and a simultaneous interaction cannot both charge.
 export async function applyDailyAccountFee(repo, account) {
-  if (!account || account.status !== 'active') return false;
-  if (account.last_account_fee_at && now() - account.last_account_fee_at < 86400000) return false;
+  if (!account) return false;
   const at = now();
-  await charge(repo, account, DAILY_ACCOUNT_FEE_CENTS, 'fee', DAILY_ACCOUNT_FEE_DESCRIPTION);
-  await repo.updateAccount(account.user_id, { last_account_fee_at: at });
+  if (!(await repo.claimDailyAccountFee(account.user_id, utcDayStart(at), at))) return false;
   account.last_account_fee_at = at;
+  const frozen = account.status === 'frozen';
+  await charge(repo, account, frozen ? FROZEN_ACCOUNT_FEE_CENTS : DAILY_ACCOUNT_FEE_CENTS, 'fee',
+    frozen ? FROZEN_ACCOUNT_FEE_DESCRIPTION : DAILY_ACCOUNT_FEE_DESCRIPTION);
   return true;
+}
+
+// Every day, no matter what: the scheduled handler sweeps every account.
+// Interaction entry points keep calling the per-account version above as a
+// backstop, so a missed cron run never means a missed fee. One bad account
+// never blocks the rest of the sweep; cron events are not retried, so the
+// backstop picks up any failure on that account's next interaction.
+export async function applyDailyAccountFees(repo) {
+  let charged = 0;
+  let failed = 0;
+  for (const account of await repo.listAllAccounts()) {
+    try {
+      if (await applyDailyAccountFee(repo, account)) charged++;
+    } catch (error) {
+      failed++;
+      console.error('daily account fee failed for account', account.user_id, error);
+    }
+  }
+  return { charged, failed };
 }
 
 async function credit(repo, account, amount, kind, description) {
@@ -280,6 +306,15 @@ export function createMemoryRepo() {
         const user = users.get(row.user_id);
         return { ...row, name: user?.name || null, slack_user_id: user?.slack_user_id || null };
       });
+    },
+    async claimDailyAccountFee(userId, dayStart, at) {
+      const account = accounts.get(userId) || { user_id: userId, balance: 0, updated_at: now(), inventory: [] };
+      if (account.last_account_fee_at != null && account.last_account_fee_at >= dayStart) return false;
+      accounts.set(userId, { ...account, last_account_fee_at: at });
+      return true;
+    },
+    async listAllAccounts() {
+      return [...accounts.values()].map(account => ({ ...account, inventory: [...parseInventory(account.inventory)] }));
     },
     async addTxn(row) { transactions.push({ id: id(), ...row }); },
     async listTxns(userId, limit) {
@@ -400,6 +435,13 @@ export function createD1Repo(db) {
       const order = direction === 'asc' ? 'ASC' : 'DESC';
       return all(`SELECT accounts.user_id, accounts.balance, accounts.status, accounts.tier, accounts.account_number, users.name, users.slack_user_id
         FROM accounts JOIN users ON users.id = accounts.user_id ORDER BY accounts.balance ${order} LIMIT ?`, limit);
+    },
+    async claimDailyAccountFee(userId, dayStart, at) {
+      const result = await run('UPDATE accounts SET last_account_fee_at = ? WHERE user_id = ? AND (last_account_fee_at IS NULL OR last_account_fee_at < ?)', at, userId, dayStart);
+      return (result.meta?.changes ?? 0) > 0;
+    },
+    async listAllAccounts() {
+      return (await all('SELECT * FROM accounts')).map(parseAccount);
     },
     async addTxn(row) {
       await run('INSERT INTO transactions (user_id, amount, kind, description, created_at) VALUES (?, ?, ?, ?, ?)',
