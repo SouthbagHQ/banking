@@ -12,8 +12,10 @@ async function setup(balance = 1000000) {
   const other = user('user-2');
   repo.seedUser(me);
   repo.seedUser(other);
-  await repo.updateAccount(me.id, { balance, status: 'active', inventory: [], updated_at: Date.now() });
-  await repo.updateAccount(other.id, { balance, status: 'active', inventory: [], updated_at: Date.now() });
+  // Seed the daily account fee as already charged so existing assertions stay
+  // about their own feature; daily-fee tests opt in by clearing it.
+  await repo.updateAccount(me.id, { balance, status: 'active', inventory: [], updated_at: Date.now(), last_account_fee_at: Date.now() });
+  await repo.updateAccount(other.id, { balance, status: 'active', inventory: [], updated_at: Date.now(), last_account_fee_at: Date.now() });
   return { repo, me, other };
 }
 
@@ -82,4 +84,39 @@ test('support fee command charges during chat', async () => {
   const result = await handleEconomy(repo, me, { action: 'fee', amount: 1.5, reason: 'Asking a stupid question' });
   assert.equal(result.ok, true);
   assert.equal((await repo.getAccount(me.id)).balance, 850);
+});
+
+test('daily account fee applies once per day of account activity', async () => {
+  const { repo, me } = await setup(10000);
+  await repo.updateAccount(me.id, { last_account_fee_at: null });
+  const first = await handleEconomy(repo, me, { action: 'balance' });
+  assert.equal(first.ok, true);
+  // 100 daily account fee + 7 balance inquiry pile
+  assert.equal((await repo.getAccount(me.id)).balance, 10000 - 100 - 7);
+  const second = await handleEconomy(repo, me, { action: 'balance' });
+  assert.equal(second.ok, true);
+  assert.equal((await repo.getAccount(me.id)).balance, 10000 - 100 - 7 - 7, 'no second daily fee inside 24h');
+});
+
+test('daily account fee returns after 24 hours', async () => {
+  const { repo, me } = await setup(10000);
+  await repo.updateAccount(me.id, { last_account_fee_at: Date.now() - 86400001 });
+  await handleEconomy(repo, me, { action: 'balance' });
+  assert.equal((await repo.getAccount(me.id)).balance, 10000 - 100 - 7);
+});
+
+test('daily account fee skips frozen accounts and shows in the ledger', async () => {
+  const { repo, me } = await setup(10000);
+  await repo.updateAccount(me.id, { last_account_fee_at: null, status: 'frozen' });
+  await handleEconomy(repo, me, { action: 'balance' });
+  let txns = await repo.listTxns(me.id, 10);
+  assert.ok(!txns.some(row => row.description === 'Daily account maintenance fee'), 'frozen account not charged the daily fee');
+  await repo.updateAccount(me.id, { status: 'active' });
+  await handleEconomy(repo, me, { action: 'balance' });
+  txns = await repo.listTxns(me.id, 10);
+  const fee = txns.find(row => row.description === 'Daily account maintenance fee');
+  assert.ok(fee, 'fee txn recorded');
+  assert.equal(fee.kind, 'fee');
+  assert.equal(fee.amount, -100);
+  assert.equal((await repo.getAccount(me.id)).balance, 10000 - 7 - 100 - 7);
 });

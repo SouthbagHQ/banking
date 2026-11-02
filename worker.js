@@ -1,5 +1,5 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
-import { createD1Repo, handleEconomy } from './economy.js';
+import { applyDailyAccountFee, createD1Repo, handleEconomy } from './economy.js';
 import {
   decodeJwtPayload,
   exchangeSlackCode,
@@ -258,9 +258,12 @@ async function accountApi(request, env, user, ctx) {
   const track = tracker(request, ctx, user);
   if (request.method === 'GET') {
     track.capture('banking_account_viewed', { via: user.bearer ? 'mobile' : 'web' });
+    const repo = createD1Repo(env.DB);
+    const account = await repo.getAccount(user.id);
+    if (account) await applyDailyAccountFee(repo, account);
     const transactions = await env.DB.prepare(`SELECT id, amount, kind, description, created_at
       FROM transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT 20`).bind(user.id).all();
-    return json({ user: { id: user.id, email: user.email, name: user.name, picture: user.picture }, balance: user.balance, transactions: transactions.results });
+    return json({ user: { id: user.id, email: user.email, name: user.name, picture: user.picture }, balance: account ? account.balance : user.balance, transactions: transactions.results });
   }
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
   const body = await request.json().catch(() => ({}));

@@ -111,7 +111,8 @@ test('slash commands need an account, then open-account creates a shadow user', 
   assert.equal(user.id, 'slack:U1');
   assert.equal(user.name, 'Testy McTest');
   const account = await repo.getAccount(user.id);
-  assert.ok(account.balance >= 0 && account.balance < 500, 'pathetic starting balance');
+  // Opening balances are pathetic AND the first interaction costs the daily account fee.
+  assert.ok(account.balance >= -100 && account.balance < 500, 'pathetic starting balance');
   assert.match(slack.find('respond')[1].payload.blocks[0].text.text, /Welcome/);
 
   await handleSlashCommand(bot, command('/south-balance'));
@@ -127,11 +128,12 @@ test('transfers resolve Slack mentions and DM balance changes when notifications
   const them = await openAccount(bot, 'U2');
   await repo.updateAccount(me.id, { balance: 100000 });
   await repo.updateAccount(them.id, { notifications: 1 });
+  const beforeTheirs = (await repo.getAccount(them.id)).balance;
   await handleSlashCommand(bot, command('/south-transfer', '5 <@U2|them>'));
   const reply = slack.find('respond').at(-1).payload;
   assert.equal(reply.blocks[0].text.text, 'Transfer Complete (somehow)');
   const theirs = await repo.getAccount(them.id);
-  assert.ok(theirs.balance >= 500);
+  assert.equal(theirs.balance, beforeTheirs + 500);
   const dm = slack.find('chat.postMessage').find(call => call.payload.channel === 'U2');
   assert.match(dm.payload.text, /Balance Update/);
   const txn = (await repo.listTxns(them.id, 1))[0];
