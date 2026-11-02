@@ -1,5 +1,5 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
-import { applyDailyAccountFee, createD1Repo, handleEconomy } from './economy.js';
+import { applyDailyAccountFee, applyDailyAccountFees, createD1Repo, handleEconomy } from './economy.js';
 import {
   decodeJwtPayload,
   exchangeSlackCode,
@@ -578,5 +578,9 @@ export default {
     const response = await app.fetch(request, env, ctx);
     for (const [key, value] of Object.entries(cors)) response.headers.set(key, value);
     return response;
+  },
+  // Daily account maintenance fee, charged every day no matter what.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(applyDailyAccountFees(createD1Repo(env.DB)));
   },
 };
