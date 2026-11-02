@@ -167,6 +167,23 @@ async function charge(repo, account, amount, kind, description) {
   return balance;
 }
 
+export const DAILY_ACCOUNT_FEE_CENTS = 100;
+export const DAILY_ACCOUNT_FEE_DESCRIPTION = 'Daily account maintenance fee';
+
+// Once per 24 hours of account activity the house takes its cut, on top of
+// whatever the activity itself costs. Uses the same charge path as every
+// other fee: it lands in the ledger and can take the balance negative,
+// like any self-respecting fee.
+export async function applyDailyAccountFee(repo, account) {
+  if (!account || account.status !== 'active') return false;
+  if (account.last_account_fee_at && now() - account.last_account_fee_at < 86400000) return false;
+  const at = now();
+  await charge(repo, account, DAILY_ACCOUNT_FEE_CENTS, 'fee', DAILY_ACCOUNT_FEE_DESCRIPTION);
+  await repo.updateAccount(account.user_id, { last_account_fee_at: at });
+  account.last_account_fee_at = at;
+  return true;
+}
+
 async function credit(repo, account, amount, kind, description) {
   const balance = account.balance + amount;
   await repo.updateAccount(account.user_id, { balance, updated_at: now() });
@@ -367,7 +384,7 @@ export function createD1Repo(db) {
     },
     async getAccount(userId) { return parseAccount(await one('SELECT * FROM accounts WHERE user_id = ?', userId)); },
     async updateAccount(userId, fields) {
-      const allowed = ['balance', 'updated_at', 'account_number', 'status', 'tier', 'inventory', 'last_daily_at', 'last_beg_at', 'last_fee_at', 'notifications', 'strikes', 'is_admin', 'is_banned', 'ban_expiry', 'ban_reason'];
+      const allowed = ['balance', 'updated_at', 'account_number', 'status', 'tier', 'inventory', 'last_daily_at', 'last_beg_at', 'last_fee_at', 'last_account_fee_at', 'notifications', 'strikes', 'is_admin', 'is_banned', 'ban_expiry', 'ban_reason'];
       const sets = [];
       const values = [];
       for (const key of allowed) {
@@ -1269,7 +1286,8 @@ export async function resolveSlackUser(repo, slackId, { create = false, name = n
 }
 
 export async function handleEconomy(repo, user, body = {}) {
-  await needAccount(repo, user.id);
+  const [sessionAccount] = await needAccount(repo, user.id);
+  if (sessionAccount) await applyDailyAccountFee(repo, sessionAccount);
   let action = String(body.action || '').replace(/^\/south-/, '').toLowerCase();
   if (!action && body.command) {
     const parsed = parseCommand(body.command);
