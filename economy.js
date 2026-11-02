@@ -199,6 +199,7 @@ export async function applyDailyAccountFee(repo, account) {
 // account never blocks the rest of the sweep, and cron events are not
 // retried.
 export async function applyDailyAccountFees(repo) {
+  await flushFreezeReports(repo);
   let charged = 0;
   let failed = 0;
   for (const account of await repo.listAllAccounts()) {
@@ -210,6 +211,75 @@ export async function applyDailyAccountFees(repo) {
     }
   }
   return { charged, failed };
+}
+
+/** Opens an account for a first-time Billing customer. Returns true when one was opened. */
+export async function ensureBillingCustomer(db, { userId, email = null, name = null }, at = now()) {
+  const existing = await db.prepare('SELECT 1 AS present FROM accounts WHERE user_id = ?').bind(userId).first();
+  if (existing) return false;
+  await db.batch([
+    db.prepare(`INSERT OR IGNORE INTO users (id, email, name, picture, created_at, updated_at) VALUES (?, ?, ?, NULL, ?, ?)`)
+      .bind(userId, email, name, at, at),
+    db.prepare(`INSERT OR IGNORE INTO accounts
+      (user_id, balance, updated_at, account_number, status, inventory) VALUES (?, 1000000, ?, ?, 'active', '[]')`)
+      .bind(userId, at, accountNumber()),
+  ]);
+  return true;
+}
+
+/**
+ * Billing charge: takes `amount` cents from the account, recording the ledger row. The ledger
+ * INSERT and the debit land in one batch (all-or-nothing). When the caller passes an
+ * idempotencyKey, the unique index on transactions.idempotency_key makes a retried charge - a
+ * lost response, a crashed caller, a double click - a no-op returning the original result
+ * instead of debiting twice.
+ */
+export async function billingCharge(db, { userId, email = null, name = null, amount, product, description, idempotencyKey = null }, at = now()) {
+  if (!userId || typeof userId !== 'string') throw new Error('userId is required');
+  if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 100000000) throw new Error('Invalid amount');
+  if (idempotencyKey !== null && (typeof idempotencyKey !== 'string' || idempotencyKey.length < 8 || idempotencyKey.length > 200))
+    throw new Error('Invalid idempotencyKey');
+  const text = `${String(product || 'Southbag').slice(0, 60)}: ${String(description || 'Charge').slice(0, 120)}`;
+  const opened = await ensureBillingCustomer(db, { userId, email, name }, at);
+  try {
+    await db.batch([
+      db.prepare('INSERT INTO transactions (user_id, amount, kind, description, idempotency_key, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .bind(userId, -amount, 'subscription', text, idempotencyKey, at),
+      db.prepare('UPDATE accounts SET balance = balance - ?, updated_at = ? WHERE user_id = ?')
+        .bind(amount, at, userId),
+    ]);
+  } catch (error) {
+    if (idempotencyKey && String(error).includes('UNIQUE constraint failed')) {
+      const existing = await db.prepare('SELECT amount FROM transactions WHERE idempotency_key = ?').bind(idempotencyKey).first();
+      if (existing && existing.amount === -amount) {
+        const current = await db.prepare('SELECT balance FROM accounts WHERE user_id = ?').bind(userId).first();
+        return { balance: current.balance, opened: false, duplicate: true };
+      }
+    }
+    throw error;
+  }
+  const account = await db.prepare('SELECT balance FROM accounts WHERE user_id = ?').bind(userId).first();
+  return { balance: account.balance, opened };
+}
+
+/**
+ * Sends every queued freeze report to Identity, marking each that lands. A failing report stays
+ * queued; reporting never throws into the caller's flow. Runs after a freeze and from the cron.
+ */
+export async function flushFreezeReports(repo) {
+  if (typeof repo.reportFreeze !== 'function' || !repo.reportFreeze) return { sent: 0, failed: 0 };
+  let sent = 0, failed = 0;
+  for (const row of await repo.pendingFreezeReports()) {
+    try {
+      await repo.reportFreeze(row.user_id, row.reason);
+      await repo.markFreezeReported(row.user_id);
+      sent++;
+    } catch (error) {
+      failed++;
+      console.error('identity freeze report failed for', row.user_id, error);
+    }
+  }
+  return { sent, failed };
 }
 
 async function credit(repo, account, amount, kind, description) {
@@ -245,7 +315,8 @@ export function parseCommand(text) {
   return { action: match[1].toLowerCase(), text: (match[2] || '').trim() };
 }
 
-export function createMemoryRepo() {
+export function createMemoryRepo(hooks = {}) {
+  const reportFreeze = typeof hooks.reportFreeze === 'function' ? hooks.reportFreeze : null;
   const users = new Map();
   const accounts = new Map();
   const transactions = [];
@@ -263,7 +334,20 @@ export function createMemoryRepo() {
   const id = () => next++;
   return {
     seedUser(user) { users.set(user.id, { ...user }); },
+    reportFreeze,
+    outbox: new Map(),
+    async enqueueFreezeReport(userId, reason) { this.outbox.set(userId, { user_id: userId, reason }); },
+    async pendingFreezeReports() { return [...this.outbox.values()]; },
+    async markFreezeReported(userId) { this.outbox.delete(userId); },
     async getUser(userId) { return users.get(userId) || null; },
+    async setAccountStatus(userId, status) {
+      if (status !== 'frozen' && status !== 'active') throw new Error('status must be frozen or active');
+      const account = accounts.get(userId);
+      if (!account) return { found: false };
+      const previous = account.status;
+      account.status = status;
+      return { found: true, previous, status };
+    },
     async findUser(hint) {
       const lower = hint.toLowerCase();
       for (const user of users.values()) {
@@ -372,14 +456,35 @@ export function createMemoryRepo() {
   };
 }
 
-export function createD1Repo(db) {
+export function createD1Repo(db, hooks = {}) {
   const one = (sql, ...bind) => db.prepare(sql).bind(...bind).first();
   const all = async (sql, ...bind) => ((await db.prepare(sql).bind(...bind).all()).results) || [];
   const run = (sql, ...bind) => db.prepare(sql).bind(...bind).run();
+  // Optional hook reporting a freeze to Southbag Identity (the account-level freeze). Wired up by
+  // worker.js / slack-bot.js; must never throw.
+  const reportFreeze = typeof hooks.reportFreeze === 'function' ? hooks.reportFreeze : null;
   const parseAccount = row => row ? { ...row, inventory: parseInventory(row.inventory) } : null;
   const parseHeist = row => row ? { ...row, participants: parseInventory(row.participants) } : null;
   return {
+    reportFreeze,
     async getUser(userId) { return one('SELECT id, email, name, slack_user_id FROM users WHERE id = ?', userId); },
+    // Durable queue for freeze reports to Identity. Enqueued in the same step as the local freeze;
+    // flushed by flushFreezeReports (after the action and from the daily cron).
+    async enqueueFreezeReport(userId, reason) {
+      await run(`INSERT INTO identity_freeze_outbox (user_id, reason, created_at, reported_at) VALUES (?, ?, ?, NULL)
+        ON CONFLICT(user_id) DO UPDATE SET reason = excluded.reason, reported_at = NULL`, userId, reason, now());
+    },
+    async pendingFreezeReports() { return all('SELECT user_id, reason FROM identity_freeze_outbox WHERE reported_at IS NULL'); },
+    async markFreezeReported(userId) { await run('UPDATE identity_freeze_outbox SET reported_at = ? WHERE user_id = ?', now(), userId); },
+    // Central-freeze mirror: Southbag Identity calls this through the Billing entrypoint
+    // (Billing.setStatus) when the account-level freeze is set or lifted.
+    async setAccountStatus(userId, status) {
+      if (status !== 'frozen' && status !== 'active') throw new Error('status must be frozen or active');
+      const account = await one('SELECT status FROM accounts WHERE user_id = ?', userId);
+      if (!account) return { found: false };
+      await run('UPDATE accounts SET status = ?, updated_at = ? WHERE user_id = ?', status, now(), userId);
+      return { found: true, previous: account.status, status };
+    },
     async findUser(hint) {
       return one('SELECT id, email, name, slack_user_id FROM users WHERE id = ? OR slack_user_id = ? OR lower(email) = lower(?)', hint, hint, hint);
     },
@@ -675,6 +780,10 @@ const actions = {
       await repo.upsertLoan({ ...existing, status: 'defaulted', total_owed: owed });
       await repo.updateAccount(user.id, { status: 'frozen' });
       await repo.addTxn({ user_id: user.id, amount: 0, kind: 'fee', description: `Loan default — account frozen (owed ${money(owed)})`, created_at: now() });
+      // The freeze is account-level: tell Identity so every Southbag service blocks the account.
+      // The report is queued durably first - if Identity is down, the cron retries and nothing is lost.
+      await repo.enqueueFreezeReport(user.id, `Loan default (owed ${money(owed)})`);
+      await flushFreezeReports(repo);
       return ok(`Defaulted on ${money(owed)}. Account frozen. Kevin has been notified.`);
     }
     const amount = dollarsToCents(body.amount || sub);

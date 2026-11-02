@@ -1,4 +1,5 @@
 import { chat } from './ai.js';
+import { centralStatus, FROZEN_TEXT, identityHooks, STATUS_UNKNOWN_TEXT } from './identity.js';
 import {
   banStatus,
   banUser,
@@ -206,7 +207,7 @@ export function slackBotConfigured(env) {
 export function createBot(env, { repo, slack, waitUntil } = {}) {
   return {
     env,
-    repo: repo || createD1Repo(env.DB),
+    repo: repo || createD1Repo(env.DB, identityHooks(env)),
     slack: slack || createSlackClient(env.SLACK_BOT_TOKEN),
     allowedChannel: env.SLACK_ALLOWED_CHANNEL || DEFAULT_ALLOWED_CHANNEL,
     linkUrl: env.SLACK_LINK_URL || DEFAULT_LINK_URL,
@@ -316,11 +317,30 @@ function withNudge(payload, nudge) {
   return next;
 }
 
+// Account-level freeze: linked Slack users share their Identity account, so the central freeze
+// applies here too. KNOWN frozen -> nothing over Slack at all, reads included (same policy as the
+// web /api guard). UNKNOWN (Identity configured but unreachable) -> everything waits; no private reads either.
+// Legacy shadow users ('slack:<id>') have no Identity account, so the freeze cannot name them.
+export async function freezeGate(bot, user, body = {}) {
+  if (!isLinked(user)) return null;
+  const central = await centralStatus(bot.env, user.id);
+  if (central !== 'off' && central !== 'unknown' && central.frozen)
+    return { ok: false, error: 'frozen', text: FROZEN_TEXT };
+  // Fail CLOSED: while Identity is unreachable even Slack reads of private data wait.
+  if (central === 'unknown') return { ok: false, error: 'unavailable', text: STATUS_UNKNOWN_TEXT };
+  return null;
+}
+
+// Every economy call the bot makes goes through here so the freeze gate cannot be skipped.
+async function economy(bot, user, body) {
+  return (await freezeGate(bot, user, body)) || handleEconomy(bot.repo, user, body);
+}
+
 // Run an economy action and DM anyone whose balance moved (if they turned notifications on).
 async function runEconomy(bot, user, body, { watch = [], description } = {}) {
   const watched = [user, ...watch].filter((item, index, list) => item && list.findIndex(other => other.id === item.id) === index);
   const before = await Promise.all(watched.map(item => bot.repo.getAccount(item.id)));
-  const result = await handleEconomy(bot.repo, user, body);
+  const result = await economy(bot, user, body);
   track(bot, 'banking_economy_action', user, user?.slack_user_id, {
     action: String(body.action || body.command || '').replace(/^\/south-/, '').split(/\s+/)[0].toLowerCase(),
     sub: body.sub || null, ok: result.ok, error: result.ok ? null : result.error || null,
@@ -397,7 +417,7 @@ export async function handleSlashCommand(bot, command) {
   nudge = linkNudge(bot, known?.user || null);
 
   if (action === 'leaderboard') {
-    const result = await handleEconomy(bot.repo, { id: 'slack:' + slackId }, { action: 'leaderboard', sub: text.toLowerCase() });
+    const result = await economy(bot, { id: 'slack:' + slackId }, { action: 'leaderboard', sub: text.toLowerCase() });
     if (!result.ok || !result.rows?.length) return respond({ response_type: 'ephemeral', text: result.text });
     const bottom = text.toLowerCase() === 'bottom';
     const lines = result.rows.map((row, index) => `${index + 1}. ${mention(row)} — ${money(row.balance)} (${row.status || 'active'})`);
@@ -434,7 +454,7 @@ export async function handleSlashCommand(bot, command) {
   if (action === 'inventory') return respond(await renderInventory(bot, user));
   if (action === 'lottery' && text.toLowerCase().startsWith('buy')) return openLotteryBuy(bot, command, user, text);
   if (action === 'transactions') {
-    const result = await handleEconomy(bot.repo, user, { action: 'transactions' });
+    const result = await economy(bot, user, { action: 'transactions' });
     if (!result.transactions?.length) return respond({ response_type: 'ephemeral', text: result.text });
     const lines = result.transactions.map(row => {
       const sign = row.amount >= 0 ? '+' : '-';
@@ -460,7 +480,7 @@ export async function handleSlashCommand(bot, command) {
 }
 
 async function renderInventory(bot, user) {
-  const result = await handleEconomy(bot.repo, user, { action: 'inventory' });
+  const result = await economy(bot, user, { action: 'inventory' });
   const inventory = result.inventory || [];
   if (!inventory.length) {
     return { response_type: 'ephemeral', text: '*Your Inventory*\n\nEmpty. Like your wallet. Like your soul.\n\nVisit `/south-shop` to buy things you don\'t need.' };
@@ -689,7 +709,9 @@ async function useItem(bot, meta, itemId, targetType, targetSlackId) {
     ],
   });
   if (commands.length) {
-    await executeCommands(commands, {
+    const freeze = await freezeGate(bot, user, { action: 'fee' });
+    if (freeze) await say({ text: freeze.text });
+    if (!freeze) await executeCommands(commands, {
       say, slack: bot.slack, repo: bot.repo, user,
       event: { channel: bot.allowedChannel, user: meta.slackId, ts: String(Date.now() / 1000) },
       notifyBalanceChange: (target, description, amount, balance) => notifyBalanceChange(bot, target, description, amount, balance),
@@ -699,7 +721,7 @@ async function useItem(bot, meta, itemId, targetType, targetSlackId) {
 
 // --- lottery ---
 async function openLotteryBuy(bot, command, user, text) {
-  const info = await handleEconomy(bot.repo, user, { action: 'lottery', sub: 'info' });
+  const info = await economy(bot, user, { action: 'lottery', sub: 'info' });
   const lottery = info.lottery;
   if (!lottery) return bot.slack.respond(command.response_url, { response_type: 'ephemeral', text: 'No lottery running right now.' });
   const inline = text.replace(/^buy\s*/i, '').trim();
@@ -940,7 +962,7 @@ function adminBlocks(lottery) {
 
 export async function publishHome(bot, slackId) {
   const resolved = await resolveSlackUser(bot.repo, slackId);
-  const overview = resolved ? await handleEconomy(bot.repo, resolved.user, { action: 'overview' }) : { ok: false };
+  const overview = resolved ? await economy(bot, resolved.user, { action: 'overview' }) : { ok: false };
   let blocks = [];
   if (!isLinked(resolved?.user)) {
     blocks.push({
@@ -1097,7 +1119,7 @@ async function previewLetter(bot, adminId, targetId, kind, details, approval) {
 async function inspectBlocks(bot, targetId, user) {
   const blocks = [section(`*User:* <@${targetId}>`)];
   if (!user) return blocks.concat(section('_No Southbag account._'));
-  const overview = await handleEconomy(bot.repo, user, { action: 'overview' });
+  const overview = await economy(bot, user, { action: 'overview' });
   const account = await bot.repo.getAccount(user.id);
   const status = banStatus(account);
   let banText = 'Not banned';
@@ -1281,7 +1303,9 @@ export async function handleMessage(bot, event) {
     if (history.length <= 1 && !isLinked(user)) {
       try { await bot.slack.postEphemeral({ channel: channelId, user: slackId, thread_ts: threadTs, text: linkNudge(bot, user) }); } catch {}
     }
-    await executeCommands(commands, {
+    const freeze = commands.length ? await freezeGate(bot, user, { action: 'fee' }) : null;
+    if (freeze) await say({ text: freeze.text, thread_ts: threadTs });
+    if (!freeze) await executeCommands(commands, {
       say, slack: bot.slack, event, repo: bot.repo, user,
       notifyBalanceChange: (target, description, amount, balance) => notifyBalanceChange(bot, target, description, amount, balance),
     });
