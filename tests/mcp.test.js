@@ -288,3 +288,41 @@ test('the same key under a different user is a different call', async () => {
   globalThis.fetch = originalFetch;
   restore();
 });
+
+test('an action failure after the fee stays pending: unknown outcome, never a stored failure', async () => {
+  const { db, env, restore } = setup('u1');
+  // Crash the ACTION executor only: every ledger insert that is not the MCP request fee.
+  const inner = env.DB;
+  env.DB = {
+    ...inner,
+    prepare: sql => {
+      const stmt = inner.prepare(sql);
+      if (!sql.startsWith('INSERT INTO transactions')) return stmt;
+      return {
+        bind(...params) { this.params = params; return this; },
+        async first() { return null; },
+        async all() { return { results: [] }; },
+        async run() {
+          if (!this.params?.some(p => String(p).includes('MCP request fee')))
+            throw new Error('simulated action executor crash');
+          return stmt.bind(...this.params).run();
+        },
+      };
+    },
+  };
+  const res1 = await handleMcp(post(rpc(1, 'tools/call', { name: 'get_balance', arguments: {} }), { ...auth, ...key }), env, {});
+  const body1 = await res1.json();
+  assert.equal(body1.result.structuredContent.unknownOutcome, true);
+  assert.equal(body1.result.structuredContent.requestFeeCharged, true);
+  assert.equal(journal(db)[0].status, 'pending'); // unknown effect: never journaled as a failure
+  assert.equal(feeTxns(db).length, 1); // exactly the request fee
+  assert.equal(balance(db), 9900);
+
+  // A retry reconciles the same pending row - it never re-runs and never charges again.
+  const res2 = await handleMcp(post(rpc(2, 'tools/call', { name: 'get_balance', arguments: {} }), { ...auth, ...key }), env, {});
+  const body2 = await res2.json();
+  assert.equal(body2.result.structuredContent.unknownOutcome, true);
+  assert.equal(feeTxns(db).length, 1);
+  assert.equal(balance(db), 9900);
+  restore();
+});
