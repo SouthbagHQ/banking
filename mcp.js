@@ -41,6 +41,16 @@ const rpcError = (id, code, message, data) => ({ jsonrpc: '2.0', id, error: { co
 
 const feeKey = (userId, key) => `mcp|banking|request|${userId}|${key}`;
 
+// Canonical JSON (keys sorted recursively) so {a:1,b:2} and {b:2,a:1} hash alike.
+const canonical = value => JSON.stringify(value, (_, v) =>
+  v && typeof v === 'object' && !Array.isArray(v)
+    ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+    : v);
+const argsHash = async (name, args) => {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical({ name, arguments: args ?? {} })));
+  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
+};
+
 // ── Agent token auth ──
 // Bearer token -> Identity's internal resolution endpoint (shared INTERNAL_API_SECRETS service
 // credential, same as the freeze API). 401 unknown/revoked token; 503 Identity down or this
@@ -118,10 +128,18 @@ async function runBankingTool(env, user, name) {
   return { outcome, captured, balanceAfter: account ? account.balance : null };
 }
 
-// A 'pending' journal row means a previous call with this key did not finish cleanly. Its outcome
-// is unknown: the action may have committed. It is NEVER silently re-run. What CAN be verified is
-// whether the request fee landed (its ledger insert and debit are one atomic batch), and a row
-// whose fee never landed and that is too old to still be running is safe to reclaim and retry.
+// A 'pending' journal row means a previous call with this key did not finish cleanly. It is NEVER
+// silently re-run. What can be verified: whether the request fee landed (its ledger row and debit
+// are one atomic batch).
+//   - Fee landed: the action may or may not have committed. Genuinely unknown; reported, and the
+//     key stays pending for reconciliation. No retry advice, no re-run.
+//   - Fee absent: the charge never committed, and the action cannot have started (it only runs
+//     after a successful charge). Reclaiming and running fresh cannot duplicate anything PROVIDED
+//     the original call is no longer in flight. Between the journal INSERT and the fee commit the
+//     only async step is one D1 batch: an isolate is not suspended and resumed, and D1's own
+//     statement timeout is far below RECLAIM_AFTER_MS, so a row older than that cannot still
+//     commit. The compare-and-swap closes the remaining concurrent-retry race, and the fee key's
+//     UNIQUE constraint is the final backstop against a double debit.
 async function reconcilePending(env, user, rowKey, key, row) {
   const fee = await env.DB.prepare('SELECT 1 AS present FROM transactions WHERE idempotency_key = ?')
     .bind(feeKey(user.id, key)).first();
@@ -157,17 +175,21 @@ async function handleToolsCall(request, env, message) {
 
   const db = env.DB;
   const rowKey = `${auth.user.id}|${key}`;
+  const hash = await argsHash(name, params.arguments);
   const replay = storedRow => {
     const stored = JSON.parse(storedRow.response);
     if (stored.structuredContent?.receipt) stored.structuredContent.receipt.duplicate = true;
     return json(rpcResult(message.id, stored));
   };
 
-  const existing = await db.prepare('SELECT tool, status, response, updated_at FROM mcp_call WHERE idempotency_key = ?').bind(rowKey).first();
+  const existing = await db.prepare('SELECT tool, args_hash, status, response, updated_at FROM mcp_call WHERE idempotency_key = ?').bind(rowKey).first();
   if (existing) {
-    // An idempotency key names ONE call: reusing it for a different tool is a caller bug.
+    // An idempotency key names ONE call: this user, this tool, these arguments. A different tool
+    // or different arguments under a used key is a caller bug, never a replay.
     if (existing.tool !== name)
       return json(rpcError(message.id, -32602, `This Idempotency-Key was already used for '${existing.tool}'. Keys are not shared across tools.`));
+    if (existing.args_hash !== hash)
+      return json(rpcError(message.id, -32602, 'This Idempotency-Key was already used with different arguments. Keys name one exact call.'));
     if (existing.status === 'done') return replay(existing);
     const pending = await reconcilePending(env, auth.user, rowKey, key, existing);
     if (pending) return json(rpcResult(message.id, pending));
@@ -183,13 +205,15 @@ async function handleToolsCall(request, env, message) {
 
   if (!existing) {
     try {
-      await db.prepare("INSERT INTO mcp_call (idempotency_key, user_id, tool, status, created_at, updated_at) VALUES (?, ?, ?, 'pending', ?, ?)")
-        .bind(rowKey, auth.user.id, name, Date.now(), Date.now()).run();
+      await db.prepare("INSERT INTO mcp_call (idempotency_key, user_id, tool, args_hash, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', ?, ?)")
+        .bind(rowKey, auth.user.id, name, hash, Date.now(), Date.now()).run();
     } catch (error) {
       if (!String(error).includes('UNIQUE constraint failed')) throw error;
       // A concurrent call with the same key claimed it first.
-      const raced = await db.prepare('SELECT tool, status, response, updated_at FROM mcp_call WHERE idempotency_key = ?').bind(rowKey).first();
+      const raced = await db.prepare('SELECT tool, args_hash, status, response, updated_at FROM mcp_call WHERE idempotency_key = ?').bind(rowKey).first();
       if (!raced) throw error;
+      if (raced.args_hash !== hash)
+        return json(rpcError(message.id, -32602, 'This Idempotency-Key was already used with different arguments. Keys name one exact call.'));
       if (raced.status === 'done') return replay(raced);
       const pending = await reconcilePending(env, auth.user, rowKey, key, raced);
       if (pending) return json(rpcResult(message.id, pending));

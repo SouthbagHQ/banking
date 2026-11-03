@@ -76,6 +76,11 @@ const key = { 'idempotency-key': 'test-key-0001' };
 const balance = db => db.prepare('SELECT balance FROM accounts WHERE user_id = ?').get('u1')?.balance;
 const journal = db => db.prepare('SELECT * FROM mcp_call').all();
 const feeTxns = db => db.prepare("SELECT * FROM transactions WHERE idempotency_key LIKE 'mcp|%'").all();
+const getBalanceHash = async () => {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('{"arguments":{},"name":"get_balance"}'));
+  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
+};
+
 
 test('initialize needs no auth and explains the fees', async () => {
   const { env, restore } = setup('u0');
@@ -196,8 +201,8 @@ test('an Idempotency-Key is bound to one tool', async () => {
 test('a pending row whose fee landed is an unknown outcome: never re-run, no second charge', async () => {
   const { db, env, restore } = setup('u1');
   // Simulate a crash after the request fee committed but before the journal closed.
-  db.prepare("INSERT INTO mcp_call (idempotency_key, user_id, tool, status, created_at, updated_at) VALUES ('u1|test-key-0001', 'u1', 'get_balance', 'pending', ?, ?)")
-    .run(Date.now() - 120000, Date.now() - 120000);
+  db.prepare("INSERT INTO mcp_call (idempotency_key, user_id, tool, args_hash, status, created_at, updated_at) VALUES ('u1|test-key-0001', 'u1', 'get_balance', ?, 'pending', ?, ?)")
+    .run(await getBalanceHash(), Date.now() - 120000, Date.now() - 120000);
   db.prepare("INSERT INTO transactions (user_id, amount, kind, description, idempotency_key, created_at) VALUES ('u1', -100, 'subscription', 'Southbag Banking: MCP request fee', 'mcp|banking|request|u1|test-key-0001', ?)")
     .run(Date.now() - 120000);
   const res = await handleMcp(post(rpc(1, 'tools/call', { name: 'get_balance' }), { ...auth, ...key }), env, {});
@@ -212,8 +217,8 @@ test('a pending row whose fee landed is an unknown outcome: never re-run, no sec
 
 test('a stale pending row whose fee never landed is reclaimed and run fresh, once', async () => {
   const { db, env, restore } = setup('u1');
-  db.prepare("INSERT INTO mcp_call (idempotency_key, user_id, tool, status, created_at, updated_at) VALUES ('u1|test-key-0001', 'u1', 'get_balance', 'pending', ?, ?)")
-    .run(Date.now() - 120000, Date.now() - 120000);
+  db.prepare("INSERT INTO mcp_call (idempotency_key, user_id, tool, args_hash, status, created_at, updated_at) VALUES ('u1|test-key-0001', 'u1', 'get_balance', ?, 'pending', ?, ?)")
+    .run(await getBalanceHash(), Date.now() - 120000, Date.now() - 120000);
   const res = await handleMcp(post(rpc(1, 'tools/call', { name: 'get_balance' }), { ...auth, ...key }), env, {});
   const body = await res.json();
   assert.equal(body.result.isError, false);
@@ -225,12 +230,47 @@ test('a stale pending row whose fee never landed is reclaimed and run fresh, onc
 
 test('a young pending row whose fee never landed is not reclaimed yet', async () => {
   const { db, env, restore } = setup('u1');
-  db.prepare("INSERT INTO mcp_call (idempotency_key, user_id, tool, status, created_at, updated_at) VALUES ('u1|test-key-0001', 'u1', 'get_balance', 'pending', ?, ?)")
-    .run(Date.now(), Date.now());
+  db.prepare("INSERT INTO mcp_call (idempotency_key, user_id, tool, args_hash, status, created_at, updated_at) VALUES ('u1|test-key-0001', 'u1', 'get_balance', ?, 'pending', ?, ?)")
+    .run(await getBalanceHash(), Date.now(), Date.now());
   const res = await handleMcp(post(rpc(1, 'tools/call', { name: 'get_balance' }), { ...auth, ...key }), env, {});
   const body = await res.json();
   assert.equal(body.result.isError, true);
   assert.equal(body.result.structuredContent.requestFeeCharged, false);
   assert.equal(balance(db), 10000);
+  restore();
+});
+
+test('a key replayed with different arguments is a caller bug, not a replay', async () => {
+  const { db, env, restore } = setup('u1');
+  await handleMcp(post(rpc(1, 'tools/call', { name: 'list_transactions', arguments: {} }), { ...auth, ...key }), env, {});
+  const res = await handleMcp(post(rpc(2, 'tools/call', { name: 'list_transactions', arguments: { limit: 5 } }), { ...auth, ...key }), env, {});
+  const body = await res.json();
+  assert.equal(body.error.code, -32602);
+  assert.match(body.error.message, /different arguments/);
+  assert.equal(balance(db), 9900); // only the first call's $1
+  restore();
+});
+
+test('the same key under a different user is a different call', async () => {
+  const { db, env, restore } = setup('u1');
+  await handleMcp(post(rpc(1, 'tools/call', { name: 'get_balance' }), { ...auth, ...key }), env, {});
+  // u2 presents the same key: independent journal row, own charge, no cross-user replay.
+  db.prepare("INSERT INTO users (id, email, name, created_at, updated_at) VALUES ('u2', 'u2@x.test', 'u2', 0, 0)").run();
+  db.prepare("INSERT INTO accounts (user_id, balance, updated_at, status, last_account_fee_at) VALUES ('u2', 5000, 0, 'active', ?)").run(Date.now());
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).endsWith('/api/internal/agent-token')) {
+      const token = JSON.parse(init.body).token;
+      const userId = token === 'good-u2' ? 'u2' : 'u1';
+      return new Response(JSON.stringify({ tokenId: 'tok', tokenName: 't', userId, email: `${userId}@x.test`, name: userId }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ frozen: false }), { status: 200 });
+  };
+  const res = await handleMcp(post(rpc(2, 'tools/call', { name: 'get_balance' }), { authorization: 'Bearer good-u2', ...key }), env, {});
+  const body = await res.json();
+  assert.equal(body.result.structuredContent.receipt.duplicate, false);
+  assert.equal(body.result.structuredContent.receipt.balanceAfter, 4893); // u2's own account charged
+  assert.equal(db.prepare('SELECT balance FROM accounts WHERE user_id = ?').get('u1').balance, 9893); // u1 untouched
+  globalThis.fetch = originalFetch;
   restore();
 });
