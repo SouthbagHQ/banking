@@ -51,6 +51,7 @@ const argsHash = async (name, args) => {
 // credential, same as the freeze API). 401 unknown/revoked token; 503 Identity down or this
 // service unconfigured. No caching: a cached 'valid' answer is a revocation bypass window.
 async function resolveAgent(env, token) {
+  if (!token) return { status: 401, text: 'Missing agent token. Tokens are issued at https://identity.southbag.cc/agents and presented as a bearer token.' };
   const secret = env.IDENTITY_INTERNAL_SECRET;
   if (!secret) return { status: 503, text: 'Agent access is not configured on this service.' };
   const origin = env.IDENTITY_ORIGIN || IDENTITY_ORIGIN;
