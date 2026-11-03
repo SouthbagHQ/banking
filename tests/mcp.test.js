@@ -215,28 +215,42 @@ test('a pending row whose fee landed is an unknown outcome: never re-run, no sec
   restore();
 });
 
-test('a stale pending row whose fee never landed is reclaimed and run fresh, once', async () => {
+test('a pending row whose fee never landed is still never re-run', async () => {
   const { db, env, restore } = setup('u1');
   db.prepare("INSERT INTO mcp_call (idempotency_key, user_id, tool, args_hash, status, created_at, updated_at) VALUES ('u1|test-key-0001', 'u1', 'get_balance', ?, 'pending', ?, ?)")
     .run(await getBalanceHash(), Date.now() - 120000, Date.now() - 120000);
   const res = await handleMcp(post(rpc(1, 'tools/call', { name: 'get_balance' }), { ...auth, ...key }), env, {});
   const body = await res.json();
-  assert.equal(body.result.isError, false);
-  assert.equal(balance(db), 9893);
-  assert.equal(journal(db)[0].status, 'done');
-  assert.equal(feeTxns(db).length, 1);
+  assert.equal(body.result.isError, true);
+  assert.equal(body.result.structuredContent.unknownOutcome, true);
+  assert.equal(body.result.structuredContent.requestFeeCharged, false);
+  assert.equal(balance(db), 10000); // nothing charged, nothing ran
+  assert.equal(journal(db)[0].status, 'pending'); // stays reconciliation-required, not reclaimed
   restore();
 });
 
-test('a young pending row whose fee never landed is not reclaimed yet', async () => {
+test('a retry during a slow original never double-runs, then replays once the original lands', async () => {
   const { db, env, restore } = setup('u1');
+  // The original has claimed the key but not yet charged (still in flight).
   db.prepare("INSERT INTO mcp_call (idempotency_key, user_id, tool, args_hash, status, created_at, updated_at) VALUES ('u1|test-key-0001', 'u1', 'get_balance', ?, 'pending', ?, ?)")
     .run(await getBalanceHash(), Date.now(), Date.now());
-  const res = await handleMcp(post(rpc(1, 'tools/call', { name: 'get_balance' }), { ...auth, ...key }), env, {});
-  const body = await res.json();
-  assert.equal(body.result.isError, true);
-  assert.equal(body.result.structuredContent.requestFeeCharged, false);
-  assert.equal(balance(db), 10000);
+  const retry = await handleMcp(post(rpc(1, 'tools/call', { name: 'get_balance' }), { ...auth, ...key }), env, {});
+  const retryBody = await retry.json();
+  assert.equal(retryBody.result.structuredContent.unknownOutcome, true);
+  assert.equal(balance(db), 10000); // the retry did NOT charge or run
+  // The original now completes: charge + action + journal close.
+  db.prepare("INSERT INTO transactions (user_id, amount, kind, description, idempotency_key, created_at) VALUES ('u1', -100, 'subscription', 'Southbag Banking: MCP request fee', 'mcp|banking|request|u1|test-key-0001', ?)").run(Date.now());
+  db.prepare('UPDATE accounts SET balance = balance - 107 WHERE user_id = ?').run('u1');
+  const stored = { content: [{ type: 'text', text: 'Balance: $98.93 (active).' }], isError: false, structuredContent: { receipt: { duplicate: false, balanceAfter: 9893 } } };
+  db.prepare("UPDATE mcp_call SET status = 'done', response = ?, updated_at = ? WHERE idempotency_key = 'u1|test-key-0001'")
+    .run(JSON.stringify(stored), Date.now());
+  // A later retry replays the original's stored result; no second action, no second charge.
+  const replay = await handleMcp(post(rpc(2, 'tools/call', { name: 'get_balance' }), { ...auth, ...key }), env, {});
+  const replayBody = await replay.json();
+  assert.equal(replayBody.result.structuredContent.receipt.duplicate, true);
+  assert.equal(replayBody.result.structuredContent.receipt.balanceAfter, 9893);
+  assert.equal(balance(db), 9893);
+  assert.equal(feeTxns(db).length, 1);
   restore();
 });
 

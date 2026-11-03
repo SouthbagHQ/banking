@@ -27,11 +27,6 @@ const MCP_REQUEST_FEE_DESCRIPTION = 'MCP request fee';
 const PROTOCOL_VERSION = '2025-06-18';
 const SUPPORTED_VERSIONS = new Set(['2025-06-18', '2025-03-26']);
 
-// A 'pending' journal row younger than this may still be mid-flight in another isolate, so an
-// unknown-looking retry must wait rather than reclaim it. Workers CPU limits make a genuine
-// in-flight call far shorter than this.
-const RECLAIM_AFTER_MS = 60000;
-
 const json = (data, status = 200, headers = {}) => new Response(JSON.stringify(data), {
   status,
   headers: { 'content-type': 'application/json', ...headers },
@@ -128,33 +123,21 @@ async function runBankingTool(env, user, name) {
   return { outcome, captured, balanceAfter: account ? account.balance : null };
 }
 
-// A 'pending' journal row means a previous call with this key did not finish cleanly. It is NEVER
-// silently re-run. What can be verified: whether the request fee landed (its ledger row and debit
-// are one atomic batch).
-//   - Fee landed: the action may or may not have committed. Genuinely unknown; reported, and the
-//     key stays pending for reconciliation. No retry advice, no re-run.
-//   - Fee absent: the charge never committed, and the action cannot have started (it only runs
-//     after a successful charge). Reclaiming and running fresh cannot duplicate anything PROVIDED
-//     the original call is no longer in flight. Between the journal INSERT and the fee commit the
-//     only async step is one D1 batch: an isolate is not suspended and resumed, and D1's own
-//     statement timeout is far below RECLAIM_AFTER_MS, so a row older than that cannot still
-//     commit. The compare-and-swap closes the remaining concurrent-retry race, and the fee key's
-//     UNIQUE constraint is the final backstop against a double debit.
+// A 'pending' journal row means a previous call with this key did not finish cleanly. It is
+// NEVER re-run and never reclaimed: there is no fencing mechanism shared by the fee executor and
+// the action executor, so no local observation proves the original call cannot still commit.
+// (The fee key's UNIQUE constraint stops a double DEBIT, but it cannot stop the original and a
+// reclaimed call both passing the charge and running the ACTION twice.) A pending row stays
+// reconciliation-required. What the response CAN report is whether the request fee landed: its
+// ledger row and debit are one atomic batch, so the ledger is ground truth for the fee - and if
+// the fee landed the action may also have committed, which is why nothing here re-runs.
 async function reconcilePending(env, user, rowKey, key, row) {
   const fee = await env.DB.prepare('SELECT 1 AS present FROM transactions WHERE idempotency_key = ?')
     .bind(feeKey(user.id, key)).first();
   const feeLanded = !!fee;
-  if (!feeLanded && Date.now() - row.updated_at > RECLAIM_AFTER_MS) {
-    // Crashed before the request fee moved: the action never ran (it runs only after a successful
-    // charge), so reclaiming the key and running fresh cannot duplicate anything. Compare-and-swap
-    // so two concurrent retries cannot both reclaim.
-    const claim = await env.DB.prepare('UPDATE mcp_call SET updated_at = ? WHERE idempotency_key = ? AND status = \'pending\' AND updated_at = ?')
-      .bind(Date.now(), rowKey, row.updated_at).run();
-    if ((claim.meta?.changes ?? 0) === 1) return null; // reclaimed; caller proceeds as fresh
-  }
   const text = feeLanded
     ? `A previous call with this Idempotency-Key did not complete. Its outcome is unknown and Southbag does not re-run unknown outcomes. The ${money(MCP_REQUEST_FEE_CENTS)} request fee was charged. Kevin has been notified.`
-    : `A previous call with this Idempotency-Key is still being processed or did not complete. No request fee has been charged for it yet. Try again shortly with the same key.`;
+    : `A previous call with this Idempotency-Key did not complete. No request fee was recorded for it, but its outcome is unknown and Southbag does not re-run it automatically. Kevin has been notified.`;
   return {
     content: [{ type: 'text', text }],
     isError: true,
@@ -191,9 +174,7 @@ async function handleToolsCall(request, env, message) {
     if (existing.args_hash !== hash)
       return json(rpcError(message.id, -32602, 'This Idempotency-Key was already used with different arguments. Keys name one exact call.'));
     if (existing.status === 'done') return replay(existing);
-    const pending = await reconcilePending(env, auth.user, rowKey, key, existing);
-    if (pending) return json(rpcResult(message.id, pending));
-    // else: reclaimed below, after the same fresh freeze check as any other call.
+    return json(rpcResult(message.id, await reconcilePending(env, auth.user, rowKey, key, existing)));
   }
 
   // Central freeze check BEFORE any fee moves, fresh per call, fail closed. Frozen/unknown
@@ -215,8 +196,7 @@ async function handleToolsCall(request, env, message) {
       if (raced.args_hash !== hash)
         return json(rpcError(message.id, -32602, 'This Idempotency-Key was already used with different arguments. Keys name one exact call.'));
       if (raced.status === 'done') return replay(raced);
-      const pending = await reconcilePending(env, auth.user, rowKey, key, raced);
-      if (pending) return json(rpcResult(message.id, pending));
+      return json(rpcResult(message.id, await reconcilePending(env, auth.user, rowKey, key, raced)));
     }
   }
 
