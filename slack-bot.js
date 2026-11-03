@@ -32,7 +32,7 @@ const SUPPORTED_IMAGE_MIMES = new Set(['image/jpeg', 'image/jpg', 'image/png', '
 const SLACK_IMAGE_URL_FIELDS = ['thumb_1024', 'thumb_960', 'thumb_720', 'thumb_480', 'url_private_download', 'url_private'];
 const MENTION = /<@([A-Z0-9]+)(?:\|[^>]*)?>/g;
 const WINDOW_SHOPPING_FEE = 15;
-const IN_CHANNEL = new Set(['heist', 'leaderboard', 'audit']);
+const IN_CHANNEL = new Set(['heist', 'audit']);
 
 const FLAVOUR = {
   balance: ['Southbag Account Summary', 'Your balance was charged for checking your balance, and then charged again for knowing about it. Classic.'],
@@ -422,7 +422,7 @@ export async function handleSlashCommand(bot, command) {
     const bottom = text.toLowerCase() === 'bottom';
     const lines = result.rows.map((row, index) => `${index + 1}. ${mention(row)} — ${money(row.balance)} (${row.status || 'active'})`);
     return respond({
-      response_type: 'in_channel',
+      response_type: 'ephemeral',
       text: bottom
         ? `*THE WALL OF SHAME*\n\n${lines.join('\n')}\n\n_These people owe more than they own. Inspirational._`
         : `*SOUTHBAG RICH LIST*\n\n${lines.join('\n')}\n\n_Wealth is temporary. Southbag fees are forever._`,
