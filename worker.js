@@ -12,6 +12,7 @@ import {
   slackUserIdFromProfile,
 } from './slack-link.js';
 import { handleSlackRequest, slackBotConfigured } from './slack-bot.js';
+import { handleMcp } from './mcp.js';
 import { aiConfigured, chat } from './ai.js';
 import { capture, tracker } from './palantir.js';
 
@@ -439,6 +440,8 @@ const app = {
       const url = new URL(request.url);
       // Slack Events API, slash commands and interactivity all point here (signature-verified, no session).
       if (slackBotPaths.has(url.pathname)) return await handleSlackRequest(request, env, ctx);
+      // Agent access (MCP): bearer agent token, $1 request fee per tools/call, discovery free.
+      if (url.pathname === '/mcp') return await handleMcp(request, env, ctx);
       if (url.pathname === '/auth/login') return await login(request, env, safeReturnTo(url.searchParams.get('next')), ctx);
       if (url.pathname === '/auth/callback') return await callback(request, env, ctx);
       if (url.pathname === '/auth/slack/callback') return await slackCallback(request, env, ctx);
