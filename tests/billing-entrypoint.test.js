@@ -113,3 +113,26 @@ test('entrypoint charge: unfrozen account charges an ordinary product', async ()
     assert.equal(result.balance, 9500);
   } finally { restore(); }
 });
+
+test('entrypoint recovery fee never calls Identity back from the service RPC', async () => {
+  const { db, billing, restore } = setup('ep-recovery-rpc', { identityUnreachable: true });
+  try {
+    let callbacks = 0;
+    globalThis.fetch = async () => { callbacks++; throw new Error('recursive Identity callback'); };
+    const input = feeInput('ep-recovery-rpc');
+    const charged = await billing.charge(input);
+    assert.equal(charged.balance, 5005);
+    const repeated = await billing.charge(input);
+    assert.equal(repeated.duplicate, true);
+    assert.equal(callbacks, 0);
+    assert.equal(db.prepare('SELECT COUNT(*) c FROM transactions WHERE user_id = ?').get('ep-recovery-rpc').c, 1);
+    for (const changed of [
+      { feeToken: 'wrong' }, { amount: 1 }, { product: 'Southbag Social' },
+      { idempotencyKey: 'spoofed-fee-key' }, { feeToken: undefined }
+    ]) {
+      await assert.rejects(() => billing.charge({ ...input, ...changed }), /status cannot be checked/);
+    }
+    assert.equal(callbacks, 5);
+    assert.equal(db.prepare('SELECT balance FROM accounts WHERE user_id = ?').get('ep-recovery-rpc').balance, 5005);
+  } finally { restore(); }
+});

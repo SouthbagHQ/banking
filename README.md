@@ -119,3 +119,7 @@ Passwords are owned by Southbag Identity. This app stores only hashed opaque ses
 
 ---
 *This is satire. Please don't actually build websites like this.*
+
+## Identity recovery fee RPC
+
+Billing accepts only the existing exact recovery-fee capability: the configured `FREEZE_FEE_SECRET`, product `Southbag Identity`, amount 4995 or 200 cents, and an `identity|` idempotency key. That fully authenticated fee path does not call Identity back: Identity is the caller, and a recursive Worker request can hang. Every other charge still checks fresh central status and fails closed on unknown or frozen status. The fee remains idempotent in D1.

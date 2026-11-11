@@ -542,10 +542,16 @@ export class Billing extends WorkerEntrypoint {
     // exact unfreeze-flow fees, authorized by the FREEZE_FEE_SECRET credential (Identity holds
     // it; the key prefix alone is caller-controlled and proves nothing). An ordinary service
     // charge - Social Verified, anything else - must not become a freeze bypass.
-    const central = await centralStatus(this.env, userId);
-    if (central === 'unknown') throw new Error(STATUS_UNKNOWN_TEXT);
-    if (central !== 'off' && central.frozen && !freezeFeeException(input, this.env))
-      throw new Error(FROZEN_TEXT);
+    // The exact fee credential is an explicit capability held only by Identity.
+    // Identity is already in the call chain: calling it back from this RPC can
+    // deadlock the Workers request (Identity -> Banking -> Identity). Validate
+    // the complete exception before any callback; ordinary charges still need
+    // a fresh central answer and fail closed on every outage or refusal.
+    if (!freezeFeeException(input, this.env)) {
+      const central = await centralStatus(this.env, userId);
+      if (central === 'unknown') throw new Error(STATUS_UNKNOWN_TEXT);
+      if (central !== 'off' && central.frozen) throw new Error(FROZEN_TEXT);
+    }
     const waitUntil = promise => this.ctx.waitUntil(promise);
     const result = await billingCharge(this.env.DB, input);
     if (result.opened) capture('banking_account_opened', userId, { via: 'billing', product: product || null }, { waitUntil });
