@@ -12,6 +12,7 @@ import {
   slackUserIdFromProfile,
 } from './slack-link.js';
 import { handleSlackRequest, slackBotConfigured } from './slack-bot.js';
+import { handleMcp } from './mcp.js';
 import { handleBulkDmRequest } from './slack-bulk-dm.js';
 import { aiConfigured, chat } from './ai.js';
 import { capture, tracker } from './palantir.js';
@@ -440,6 +441,8 @@ const app = {
       const url = new URL(request.url);
       // Slack Events API, slash commands and interactivity all point here (signature-verified, no session).
       if (slackBotPaths.has(url.pathname)) return await handleSlackRequest(request, env, ctx);
+      // Agent access (MCP): bearer agent token, $1 request fee per tools/call, discovery free.
+      if (url.pathname === '/mcp') return await handleMcp(request, env, ctx);
       // Admin bulk-DM tool (own bearer auth, dry-run by default, sending disabled unless
       // SLACK_BULK_DM_ENABLED=true; see slack-bulk-dm.js and the README).
       if (url.pathname === '/slack/admin/bulk-dm') return await handleBulkDmRequest(request, env, ctx);
