@@ -554,7 +554,17 @@ export class Billing extends WorkerEntrypoint {
     // deadlock the Workers request (Identity -> Banking -> Identity). Validate
     // the complete exception before any callback; ordinary charges still need
     // a fresh central answer and fail closed on every outage or refusal.
-    if (!freezeFeeException(input, this.env)) {
+    // A charge carrying Identity's own credential (FREEZE_FEE_SECRET, held only by Identity)
+    // must not trigger a central callback: Identity is already in the call chain and the
+    // callback deadlocks the request (Identity -> Banking -> Identity, see banking PR #18).
+    // Identity refuses frozen accounts before charging, and the local status mirror Identity
+    // maintains through setStatus guards frozen accounts here without the network round-trip.
+    const identityVouched = typeof (input || {}).feeToken === 'string' && !!this.env.FREEZE_FEE_SECRET && input.feeToken === this.env.FREEZE_FEE_SECRET;
+    if (identityVouched && !freezeFeeException(input, this.env)) {
+      const mirror = await this.env.DB.prepare('SELECT status FROM accounts WHERE user_id = ?').bind(userId).first();
+      if (mirror && mirror.status === 'frozen') throw new Error(FROZEN_TEXT);
+    }
+    if (!identityVouched && !freezeFeeException(input, this.env)) {
       const central = await centralStatus(this.env, userId);
       if (central === 'unknown') throw new Error(STATUS_UNKNOWN_TEXT);
       if (central !== 'off' && central.frozen) throw new Error(FROZEN_TEXT);
