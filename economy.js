@@ -359,6 +359,12 @@ export function createMemoryRepo(hooks = {}) {
       for (const user of users.values()) if (user.slack_user_id === slackUserId) return user;
       return null;
     },
+    // Bulk-DM audience: every known Slack user, flagged by link state. The memory repo has no
+    // legacy store, so legacy-only accounts simply never appear here.
+    async listSlackAudience() {
+      return [...users.values()].filter(user => user.slack_user_id)
+        .map(user => ({ slack_user_id: user.slack_user_id, name: user.name || null, linked: !user.id.startsWith(SLACK_USER_PREFIX) }));
+    },
     async createSlackUser({ id, slack_user_id, name, balance }) {
       users.set(id, { id, email: null, name: name || null, slack_user_id, created_at: now() });
       accounts.set(id, { user_id: id, balance, updated_at: now(), account_number: accountNumber(), status: 'active', inventory: [], notifications: 0, strikes: 0 });
@@ -490,6 +496,18 @@ export function createD1Repo(db, hooks = {}) {
     },
     async getUserBySlackId(slackUserId) {
       return one('SELECT id, email, name, slack_user_id FROM users WHERE slack_user_id = ?', slackUserId);
+    },
+    // Bulk-DM audience: every known Slack user, flagged by link state. Shadow users
+    // ('slack:<id>') and legacy accounts that never linked count as unlinked.
+    async listSlackAudience() {
+      return all(`SELECT slack_user_id, name, linked FROM (
+          SELECT slack_user_id, COALESCE(slack_name, name) AS name,
+            CASE WHEN id LIKE 'slack:%' THEN 0 ELSE 1 END AS linked
+          FROM users WHERE slack_user_id IS NOT NULL
+          UNION
+          SELECT slack_user_id, name, 0 AS linked FROM slack_legacy_accounts
+          WHERE slack_user_id NOT IN (SELECT slack_user_id FROM users WHERE slack_user_id IS NOT NULL)
+        )`);
     },
     async createSlackUser({ id, slack_user_id, name, balance }) {
       const at = now();

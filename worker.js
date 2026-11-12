@@ -13,6 +13,7 @@ import {
 } from './slack-link.js';
 import { handleSlackRequest, slackBotConfigured } from './slack-bot.js';
 import { handleMcp } from './mcp.js';
+import { handleBulkDmRequest } from './slack-bulk-dm.js';
 import { aiConfigured, chat } from './ai.js';
 import { capture, tracker } from './palantir.js';
 
@@ -442,6 +443,9 @@ const app = {
       if (slackBotPaths.has(url.pathname)) return await handleSlackRequest(request, env, ctx);
       // Agent access (MCP): bearer agent token, $1 request fee per tools/call, discovery free.
       if (url.pathname === '/mcp') return await handleMcp(request, env, ctx);
+      // Admin bulk-DM tool (own bearer auth, dry-run by default, sending disabled unless
+      // SLACK_BULK_DM_ENABLED=true; see slack-bulk-dm.js and the README).
+      if (url.pathname === '/slack/admin/bulk-dm') return await handleBulkDmRequest(request, env, ctx);
       if (url.pathname === '/auth/login') return await login(request, env, safeReturnTo(url.searchParams.get('next')), ctx);
       if (url.pathname === '/auth/callback') return await callback(request, env, ctx);
       if (url.pathname === '/auth/slack/callback') return await slackCallback(request, env, ctx);
