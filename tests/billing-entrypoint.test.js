@@ -126,13 +126,51 @@ test('entrypoint recovery fee never calls Identity back from the service RPC', a
     assert.equal(repeated.duplicate, true);
     assert.equal(callbacks, 0);
     assert.equal(db.prepare('SELECT COUNT(*) c FROM transactions WHERE user_id = ?').get('ep-recovery-rpc').c, 1);
-    for (const changed of [
-      { feeToken: 'wrong' }, { amount: 1 }, { product: 'Southbag Social' },
-      { idempotencyKey: 'spoofed-fee-key' }, { feeToken: undefined }
-    ]) {
+    // A wrong or missing credential is not Identity: those charges still need a fresh central
+    // answer and fail closed while Identity is unreachable.
+    for (const changed of [{ feeToken: 'wrong' }, { feeToken: undefined }]) {
       await assert.rejects(() => billing.charge({ ...input, ...changed }), /status cannot be checked/);
     }
-    assert.equal(callbacks, 5);
-    assert.equal(db.prepare('SELECT balance FROM accounts WHERE user_id = ?').get('ep-recovery-rpc').balance, 5005);
+    assert.equal(callbacks, 2);
+    // With the credential, Identity vouches and no callback happens for any of its charges on an
+    // account the local mirror shows active - arbitrary amounts, products and key shapes included.
+    for (const changed of [
+      { amount: 1, idempotencyKey: 'identity|adj|ep-recovery-rpc|1' },
+      { amount: 1, product: 'Southbag Social', idempotencyKey: 'identity|adj|ep-recovery-rpc|2' },
+      { amount: 1, idempotencyKey: 'spoofed-fee-key' }
+    ]) {
+      const ok = await billing.charge({ ...input, ...changed });
+      assert.equal(typeof ok.balance, 'number');
+    }
+    assert.equal(callbacks, 2);
+    assert.equal(db.prepare('SELECT balance FROM accounts WHERE user_id = ?').get('ep-recovery-rpc').balance, 5002);
+  } finally { restore(); }
+});
+
+test('entrypoint charge: an Identity-vouched MCP fee never calls Identity back from the service RPC', async () => {
+  const { db, billing, restore } = setup('ep-mcp-vouch', { identityUnreachable: true });
+  try {
+    let callbacks = 0;
+    globalThis.fetch = async () => { callbacks++; throw new Error('recursive Identity callback'); };
+    // Identity's own /mcp request fee: not an unfreeze-fee amount, but Identity already refused
+    // frozen accounts upstream and vouches with the credential only it holds.
+    const input = {
+      userId: 'ep-mcp-vouch',
+      amount: 100,
+      product: 'Southbag Identity',
+      description: 'MCP request fee',
+      idempotencyKey: 'identity-mcp|ep-mcp-vouch|e2e-key',
+      feeToken: 'fee-tok',
+    };
+    const charged = await billing.charge(input);
+    assert.equal(charged.balance, 9900);
+    assert.equal(callbacks, 0);
+    const repeated = await billing.charge(input);
+    assert.equal(repeated.duplicate, true);
+    assert.equal(db.prepare('SELECT COUNT(*) c FROM transactions WHERE user_id = ?').get('ep-mcp-vouch').c, 1);
+    // Without the credential the same charge still needs a fresh central answer and fails closed.
+    await assert.rejects(() => billing.charge({ ...input, idempotencyKey: 'identity-mcp|ep-mcp-vouch|other', feeToken: 'wrong' }),
+      /status cannot be checked/);
+    assert.equal(callbacks, 1);
   } finally { restore(); }
 });
