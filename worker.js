@@ -12,6 +12,7 @@ import {
   slackUserIdFromProfile,
 } from './slack-link.js';
 import { handleSlackRequest, slackBotConfigured } from './slack-bot.js';
+import { handleBulkDmRequest } from './slack-bulk-dm.js';
 import { aiConfigured, chat } from './ai.js';
 import { capture, tracker } from './palantir.js';
 
@@ -439,6 +440,9 @@ const app = {
       const url = new URL(request.url);
       // Slack Events API, slash commands and interactivity all point here (signature-verified, no session).
       if (slackBotPaths.has(url.pathname)) return await handleSlackRequest(request, env, ctx);
+      // Admin bulk-DM tool (own bearer auth, dry-run by default, sending disabled unless
+      // SLACK_BULK_DM_ENABLED=true; see slack-bulk-dm.js and the README).
+      if (url.pathname === '/slack/admin/bulk-dm') return await handleBulkDmRequest(request, env, ctx);
       if (url.pathname === '/auth/login') return await login(request, env, safeReturnTo(url.searchParams.get('next')), ctx);
       if (url.pathname === '/auth/callback') return await callback(request, env, ctx);
       if (url.pathname === '/auth/slack/callback') return await slackCallback(request, env, ctx);
