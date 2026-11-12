@@ -24,6 +24,9 @@
   // INTERNAL_API_SECRETS (key "southbag-online-banking"): loan-default freezes are reported to
   // Identity's internal API (identity.js). Without it, reports stay queued in
   // identity_freeze_outbox and the daily cron keeps retrying.
+  // Bulk Slack DMs (slack-bulk-dm.js) stay inert until BOTH are set:
+  //   `wrangler secret put SLACK_ADMIN_TOKEN` - bearer for POST /slack/admin/bulk-dm (enables dry runs)
+  //   SLACK_BULK_DM_ENABLED=true - the send path; without it only previews run. Keep unset.
   "observability": { "enabled": true },
   "triggers": {
     "crons": ["0 0 * * *"]

@@ -98,7 +98,19 @@ npx wrangler secret put SLACK_LINK_URL         # optional, where unlinked users 
 - `/south-shop` opens the gift shop modal (buy, buy multiple, gift to someone, tribute to Kevin; window shopping fee on close). `/south-combine` and `/south-use` open modals; recipes in `economy.js` win, otherwise the AI invents the result and the target's reaction.
 - App Home shows the account overview; admins also get the panel (inspect, warn, ban with AI-written Kevin letters, create/draw/cancel lotteries).
 
-Module map: `slack-bot.js` (HTTP entry, events, commands, modals, home), `slack-api.js` (signature check + Web API client), `slack-commands.js` (AI command tags), `slack-prompt.js` (persona), `ai.js` (Hack Club AI proxy), `slack-link.js` (Sign in with Slack + shadow merge).
+Module map: `slack-bot.js` (HTTP entry, events, commands, modals, home), `slack-api.js` (signature check + Web API client), `slack-commands.js` (AI command tags), `slack-prompt.js` (persona), `ai.js` (Hack Club AI proxy), `slack-link.js` (Sign in with Slack + shadow merge), `slack-bulk-dm.js` (admin bulk DMs).
+
+### Bulk Slack DMs (admin, off by default)
+
+`POST /slack/admin/bulk-dm` sends one DM from the Support bot to a selected audience. It exists so announcements can reach a chosen slice of Slack users (e.g. accounts that never linked) without posting in a channel. It is deliberately hard to fire:
+
+- The endpoint answers `503` until `npx wrangler secret put SLACK_ADMIN_TOKEN` is set; every call needs `Authorization: Bearer <token>`.
+- A call without a `confirm` field is always a dry run: it resolves the audience, excludes bots/deleted accounts and the app's own bot user, and returns the recipient list, the message and a `confirm` token. Nothing is ever sent on this path.
+- A sending call needs the dry run's `confirm` token (bound to the exact target, resolved recipients and message — any audience change requires a fresh preview) AND `SLACK_BULK_DM_ENABLED=true` in the environment. Without the flag the call is refused with `403`.
+
+Body: `{ "target": "unlinked" | "linked" | "all" | "slack_ids", "slack_ids": ["U…"], "message": "Hi {name}, …" }`. `unlinked` is shadow users plus legacy dump accounts that never linked; `{name}` renders as the recipient's Slack display name. Audiences are capped at 200; sends go out one at a time with a short delay and per-recipient errors are reported, not fatal.
+
+Note for the link-nudge use case: the onboarding page (`flow=slack-banking`) warns that imported Slack data overwrites the web account, so message wording must not pressure anyone into linking.
 
 ## Features
 - Dynamic OAuth client registration
