@@ -94,7 +94,7 @@ npx wrangler secret put SLACK_LINK_URL         # optional, where unlinked users 
 ### What the bot does
 
 - Mentions in the allowed channel, thread replies where the bot was summoned, and DMs get the Southbag Support AI (with the roast-from-profile, banking and inventory context, Kevin takeovers, `[FEE:…]`/`[HOLD:…]`/`[TICKET:…]` command tags, and image uploads). History is stored per channel/thread in `slack_messages`.
-- All 30 `/south-*` slash commands run through `handleEconomy` in `economy.js` and render as Block Kit. `/south-heist`, `/south-leaderboard` and `/south-audit` post in-channel; everything else is ephemeral. Balance changes DM users who turned on `/south-notifs`.
+- All 30 `/south-*` slash commands run through `handleEconomy` in `economy.js` and render as Block Kit. `/south-heist` and `/south-audit` post in-channel; everything else, including `/south-leaderboard`, is ephemeral. Balance changes DM users who turned on `/south-notifs`.
 - `/south-shop` opens the gift shop modal (buy, buy multiple, gift to someone, tribute to Kevin; window shopping fee on close). `/south-combine` and `/south-use` open modals; recipes in `economy.js` win, otherwise the AI invents the result and the target's reaction.
 - App Home shows the account overview; admins also get the panel (inspect, warn, ban with AI-written Kevin letters, create/draw/cancel lotteries).
 
@@ -119,3 +119,7 @@ Passwords are owned by Southbag Identity. This app stores only hashed opaque ses
 
 ---
 *This is satire. Please don't actually build websites like this.*
+
+## Identity recovery fee RPC
+
+Billing accepts only the existing exact recovery-fee capability: the configured `FREEZE_FEE_SECRET`, product `Southbag Identity`, amount 4995 or 200 cents, and an `identity|` idempotency key. That fully authenticated fee path does not call Identity back: Identity is the caller, and a recursive Worker request can hang. Every other charge still checks fresh central status and fails closed on unknown or frozen status. The fee remains idempotent in D1.

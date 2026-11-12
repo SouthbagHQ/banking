@@ -140,12 +140,12 @@ test('transfers resolve Slack mentions and DM balance changes when notifications
   assert.equal(txn.description, 'Transfer from testy');
 });
 
-test('leaderboard is public and mentions Slack users', async () => {
+test('leaderboard is ephemeral and mentions Slack users', async () => {
   const { bot, slack } = makeBot();
   await openAccount(bot, 'U1');
   await handleSlashCommand(bot, command('/south-leaderboard', 'bottom', 'U9'));
   const reply = slack.find('respond').at(-1).payload;
-  assert.equal(reply.response_type, 'in_channel');
+  assert.equal(reply.response_type, 'ephemeral');
   assert.match(reply.text, /WALL OF SHAME/);
   assert.match(reply.text, /<@U1>/);
 });
